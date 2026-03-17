@@ -1,0 +1,34 @@
+export const APP_CONSTANTS = {
+  DEFAULT_PAGE: 1,
+  DEFAULT_LIMIT: 20,
+  MAX_LIMIT: 100,
+  BCRYPT_SALT_ROUNDS: 12,
+  OTP_EXPIRY_MINUTES: 5,
+  MAX_OTP_ATTEMPTS: 3,
+  MAX_LOGIN_ATTEMPTS: 5,
+  LOGIN_LOCK_MINUTES: 15,
+  MAX_CONCURRENT_SESSIONS: 5,
+  PLACEMENT_MIN_QUESTIONS: 20,
+  PLACEMENT_MAX_QUESTIONS: 40,
+  PLACEMENT_MIN_COMPLETION: 0.9,
+  PLACEMENT_COOLDOWN_DAYS: 30,
+  MOCK_TEST_LISTENING_MINUTES: 45,
+  MOCK_TEST_READING_MINUTES: 75,
+  MOCK_TEST_TOTAL_QUESTIONS: 200,
+  LISTENING_QUESTIONS: 100,
+  READING_QUESTIONS: 100,
+} as const;
+
+export const TOEIC_PARTS = {
+  PART_1: { name: 'Photographs', questions: 6, section: 'listening' },
+  PART_2: { name: 'Question-Response', questions: 25, section: 'listening' },
+  PART_3: { name: 'Conversations', questions: 39, section: 'listening' },
+  PART_4: { name: 'Talks', questions: 30, section: 'listening' },
+  PART_5: { name: 'Incomplete Sentences', questions: 30, section: 'reading' },
+  PART_6: { name: 'Text Completion', questions: 16, section: 'reading' },
+  PART_7: {
+    name: 'Reading Comprehension',
+    questions: 54,
+    section: 'reading',
+  },
+} as const;
