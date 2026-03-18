@@ -5,7 +5,7 @@ import {
   NestInterceptor,
 } from '@nestjs/common';
 import { Observable, tap } from 'rxjs';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 
 const c = {
   reset: '\x1b[0m',
@@ -57,7 +57,7 @@ export class LoggingInterceptor implements NestInterceptor {
 
     return next.handle().pipe(
       tap(() => {
-        const response = context.switchToHttp().getResponse();
+        const response = context.switchToHttp().getResponse<Response>();
         const elapsed = Date.now() - now;
 
         console.log(
