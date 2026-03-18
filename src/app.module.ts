@@ -13,6 +13,7 @@ import { RolesGuard } from './common/guards/roles.guard';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { SecurityModule } from './modules/security/security.module';
+import { AppController } from './app.controller';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { SecurityModule } from './modules/security/security.module';
 
     SecurityModule,
   ],
+  controllers: [AppController],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
