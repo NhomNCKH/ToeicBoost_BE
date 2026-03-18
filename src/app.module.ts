@@ -5,6 +5,7 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 import { DB_ENTITIES_PATH } from './config/database.config';
+import { CustomTypeOrmLogger } from './common/logger/typeorm.logger';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -29,6 +30,8 @@ import { SecurityModule } from './modules/security/security.module';
         database: config.getOrThrow<string>('DB_DATABASE'),
         synchronize: false,
         logging: config.get('DB_LOGGING') === 'true',
+        logger: config.get('DB_LOGGING') === 'true' ? new CustomTypeOrmLogger() : undefined,
+        maxQueryExecutionTime: 1000,
         ssl: config.get('DB_SSL') === 'true'
           ? { rejectUnauthorized: false }
           : false,

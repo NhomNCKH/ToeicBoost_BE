@@ -1,16 +1,17 @@
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
-import { ValidationPipe, Logger } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import compression from 'compression';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
+import { AppLogger } from './common/logger/app.logger';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, {
-    logger: ['error', 'warn', 'log', 'debug', 'verbose'],
-  });
+  const logger = new AppLogger('Bootstrap');
+
+  const app = await NestFactory.create(AppModule, { logger });
 
   const configService = app.get(ConfigService);
   const port = configService.getOrThrow('APP_PORT');
@@ -57,8 +58,6 @@ async function bootstrap() {
   }
 
   await app.listen(port);
-  Logger.log(`${appName} running on http://localhost:${port}/${apiPrefix}`, 'Bootstrap');
-  Logger.log(`Swagger docs at http://localhost:${port}/docs`, 'Bootstrap');
 }
 
 bootstrap();
