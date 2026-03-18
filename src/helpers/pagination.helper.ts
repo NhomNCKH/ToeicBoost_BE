@@ -1,5 +1,8 @@
 import { ObjectLiteral, SelectQueryBuilder } from 'typeorm';
-import { IPaginatedResult, IPaginationOptions } from '../common/interfaces/pagination.interface';
+import {
+  IPaginatedResult,
+  IPaginationOptions,
+} from '../common/interfaces/pagination.interface';
 
 export async function paginate<T extends ObjectLiteral>(
   queryBuilder: SelectQueryBuilder<T>,

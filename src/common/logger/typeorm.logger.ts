@@ -1,4 +1,4 @@
-import { Logger as TypeOrmLogger, QueryRunner } from 'typeorm';
+import { Logger as TypeOrmLogger } from 'typeorm';
 
 const c = {
   reset: '\x1b[0m',
@@ -24,7 +24,8 @@ function formatQuery(query: string): string {
   if (query.startsWith('INSERT')) return `${c.green}${q}${c.reset}`;
   if (query.startsWith('UPDATE')) return `${c.yellow}${q}${c.reset}`;
   if (query.startsWith('DELETE')) return `${c.red}${q}${c.reset}`;
-  if (query.startsWith('CREATE') || query.startsWith('ALTER')) return `${c.magenta}${q}${c.reset}`;
+  if (query.startsWith('CREATE') || query.startsWith('ALTER'))
+    return `${c.magenta}${q}${c.reset}`;
   return `${c.dim}${q}${c.reset}`;
 }
 
@@ -36,35 +37,55 @@ function formatMs(time?: number): string {
 }
 
 export class CustomTypeOrmLogger implements TypeOrmLogger {
-  logQuery(query: string, parameters?: unknown[], _queryRunner?: QueryRunner) {
-    const params = parameters?.length ? `${c.gray} -- ${JSON.stringify(parameters).substring(0, 80)}${c.reset}` : '';
-    console.log(`${ts()} ${c.green}⚡ DB${c.reset}    ${formatQuery(query)}${params}`);
+  logQuery(query: string, parameters?: unknown[]) {
+    const params = parameters?.length
+      ? `${c.gray} -- ${JSON.stringify(parameters).substring(0, 80)}${c.reset}`
+      : '';
+    console.log(
+      `${ts()} ${c.green}⚡ DB${c.reset}    ${formatQuery(query)}${params}`,
+    );
   }
 
-  logQueryError(error: string | Error, query: string, parameters?: unknown[], _queryRunner?: QueryRunner) {
-    const params = parameters?.length ? `${c.gray} -- ${JSON.stringify(parameters).substring(0, 80)}${c.reset}` : '';
-    console.log(`${ts()} ${c.bgRed}${c.bold} DB ERR ${c.reset} ${c.red}${query.substring(0, 120)}${c.reset}${params}`);
+  logQueryError(error: string | Error, query: string, parameters?: unknown[]) {
+    const params = parameters?.length
+      ? `${c.gray} -- ${JSON.stringify(parameters).substring(0, 80)}${c.reset}`
+      : '';
+    console.log(
+      `${ts()} ${c.bgRed}${c.bold} DB ERR ${c.reset} ${c.red}${query.substring(0, 120)}${c.reset}${params}`,
+    );
     console.log(`${ts()}          ${c.red}${error}${c.reset}`);
   }
 
-  logQuerySlow(time: number, query: string, parameters?: unknown[], _queryRunner?: QueryRunner) {
-    const params = parameters?.length ? `${c.gray} -- ${JSON.stringify(parameters).substring(0, 80)}${c.reset}` : '';
-    console.log(`${ts()} ${c.bgYellow}${c.bold} SLOW ${c.reset}  ${c.yellow}${query.substring(0, 120)}${c.reset}${params} ${formatMs(time)}`);
+  logQuerySlow(time: number, query: string, parameters?: unknown[]) {
+    const params = parameters?.length
+      ? `${c.gray} -- ${JSON.stringify(parameters).substring(0, 80)}${c.reset}`
+      : '';
+    console.log(
+      `${ts()} ${c.bgYellow}${c.bold} SLOW ${c.reset}  ${c.yellow}${query.substring(0, 120)}${c.reset}${params} ${formatMs(time)}`,
+    );
   }
 
   logSchemaBuild(message: string) {
-    console.log(`${ts()} ${c.magenta}🔧 SCHEMA${c.reset} ${c.magenta}${message}${c.reset}`);
+    console.log(
+      `${ts()} ${c.magenta}🔧 SCHEMA${c.reset} ${c.magenta}${message}${c.reset}`,
+    );
   }
 
   logMigration(message: string) {
-    console.log(`${ts()} ${c.magenta}📦 MIGR${c.reset}   ${c.magenta}${message}${c.reset}`);
+    console.log(
+      `${ts()} ${c.magenta}📦 MIGR${c.reset}   ${c.magenta}${message}${c.reset}`,
+    );
   }
 
   log(level: 'log' | 'info' | 'warn', message: string) {
     if (level === 'warn') {
-      console.log(`${ts()} ${c.bgYellow}${c.bold} WARN ${c.reset}  ${c.yellow}${message}${c.reset}`);
+      console.log(
+        `${ts()} ${c.bgYellow}${c.bold} WARN ${c.reset}  ${c.yellow}${message}${c.reset}`,
+      );
     } else {
-      console.log(`${ts()} ${c.green}✔ DB${c.reset}    ${c.dim}${message}${c.reset}`);
+      console.log(
+        `${ts()} ${c.green}✔ DB${c.reset}    ${c.dim}${message}${c.reset}`,
+      );
     }
   }
 }

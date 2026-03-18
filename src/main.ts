@@ -14,9 +14,9 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { logger });
 
   const configService = app.get(ConfigService);
-  const port = configService.getOrThrow('APP_PORT');
-  const apiPrefix = configService.getOrThrow('API_PREFIX');
-  const appName = configService.getOrThrow('APP_NAME');
+  const port = configService.getOrThrow<string>('APP_PORT');
+  const apiPrefix = configService.getOrThrow<string>('API_PREFIX');
+  const appName = configService.getOrThrow<string>('APP_NAME');
 
   app.setGlobalPrefix(apiPrefix, {
     exclude: [
@@ -38,13 +38,14 @@ async function bootstrap() {
   app.use(helmet());
 
   app.enableCors({
-    origin: configService.get('NODE_ENV') === 'production'
-      ? ['https://toeic-ai.com', 'https://verify.toeic-ai.com']
-      : true,
+    origin:
+      configService.get<string>('NODE_ENV') === 'production'
+        ? ['https://toeic-ai.com', 'https://verify.toeic-ai.com']
+        : true,
     credentials: true,
   });
 
-  if (configService.get('NODE_ENV') !== 'production') {
+  if (configService.get<string>('NODE_ENV') !== 'production') {
     const swaggerConfig = new DocumentBuilder()
       .setTitle(appName)
       .setDescription('TOEIC AI Learning Platform API')
@@ -62,7 +63,7 @@ async function bootstrap() {
     });
   }
 
-  await app.listen(port);
+  await app.listen(Number(port));
 }
 
-bootstrap();
+void bootstrap();

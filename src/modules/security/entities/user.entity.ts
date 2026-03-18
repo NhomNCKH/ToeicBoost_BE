@@ -8,7 +8,12 @@ export class User extends BaseEntity {
   @Column({ name: 'email', type: 'varchar', length: 255 })
   email: string;
 
-  @Column({ name: 'password_hash', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 'password_hash',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   passwordHash: string | null;
 
   @Column({ name: 'name', type: 'varchar', length: 100 })
@@ -37,7 +42,10 @@ export class User extends BaseEntity {
   @Column({ name: 'avatar_url', type: 'varchar', length: 500, nullable: true })
   avatarUrl: string | null;
 
-  @Index('uq_users_google_id', { unique: true, where: '"google_id" IS NOT NULL' })
+  @Index('uq_users_google_id', {
+    unique: true,
+    where: '"google_id" IS NOT NULL',
+  })
   @Column({ name: 'google_id', type: 'varchar', length: 255, nullable: true })
   googleId: string | null;
 
@@ -52,5 +60,4 @@ export class User extends BaseEntity {
 
   @Column({ name: 'last_login_at', type: 'timestamptz', nullable: true })
   lastLoginAt: Date | null;
-
 }

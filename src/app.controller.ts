@@ -62,7 +62,7 @@ export class AppController {
   })
   getDetailedHealth() {
     const memoryUsage = process.memoryUsage();
-    
+
     return {
       status: 'healthy',
       timestamp: new Date().toISOString(),
@@ -70,8 +70,8 @@ export class AppController {
       environment: process.env.NODE_ENV || 'development',
       version: '1.0.0',
       memory: {
-        used: `${Math.round(memoryUsage.heapUsed / 1024 / 1024 * 100) / 100} MB`,
-        total: `${Math.round(memoryUsage.heapTotal / 1024 / 1024 * 100) / 100} MB`,
+        used: `${Math.round((memoryUsage.heapUsed / 1024 / 1024) * 100) / 100} MB`,
+        total: `${Math.round((memoryUsage.heapTotal / 1024 / 1024) * 100) / 100} MB`,
       },
     };
   }

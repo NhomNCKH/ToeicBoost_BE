@@ -11,7 +11,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
 import { Repository } from 'typeorm';
 import { APP_CONSTANTS } from '../../common/constants/app.constant';
-import { IJwtPayload, ITokenPair } from '../../common/interfaces/jwt-payload.interface';
+import {
+  IJwtPayload,
+  ITokenPair,
+} from '../../common/interfaces/jwt-payload.interface';
 import { HashHelper } from '../../helpers/hash.helper';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
@@ -71,10 +74,15 @@ export class SecurityService {
     }
 
     if (user.lockedUntil && user.lockedUntil > new Date()) {
-      throw new ForbiddenException('Account temporarily locked. Please try again later.');
+      throw new ForbiddenException(
+        'Account temporarily locked. Please try again later.',
+      );
     }
 
-    const isValidPassword = await HashHelper.compare(dto.password, user.passwordHash);
+    const isValidPassword = await HashHelper.compare(
+      dto.password,
+      user.passwordHash,
+    );
 
     if (!isValidPassword) {
       await this.handleFailedLogin(user);
@@ -107,9 +115,12 @@ export class SecurityService {
   async refreshToken(dto: RefreshTokenDto, meta: IAuthRequestMeta) {
     let payload: IJwtPayload;
     try {
-      payload = await this.jwtService.verifyAsync<IJwtPayload>(dto.refreshToken, {
-        secret: this.configService.getOrThrow<string>('JWT_REFRESH_SECRET'),
-      });
+      payload = await this.jwtService.verifyAsync<IJwtPayload>(
+        dto.refreshToken,
+        {
+          secret: this.configService.getOrThrow<string>('JWT_REFRESH_SECRET'),
+        },
+      );
     } catch {
       throw new UnauthorizedException('Invalid refresh token');
     }
@@ -119,7 +130,11 @@ export class SecurityService {
       where: { tokenHash: hashedToken },
     });
 
-    if (!refreshToken || refreshToken.revokedAt || refreshToken.expiresAt <= new Date()) {
+    if (
+      !refreshToken ||
+      refreshToken.revokedAt ||
+      refreshToken.expiresAt <= new Date()
+    ) {
       throw new UnauthorizedException('Refresh token is expired or revoked');
     }
 
@@ -196,10 +211,16 @@ export class SecurityService {
       role: user.role,
     };
 
-    const accessSecret = this.configService.getOrThrow<string>('JWT_ACCESS_SECRET');
-    const refreshSecret = this.configService.getOrThrow<string>('JWT_REFRESH_SECRET');
-    const accessExpiresIn = this.configService.getOrThrow<string>('JWT_ACCESS_EXPIRATION');
-    const refreshExpiresIn = this.configService.getOrThrow<string>('JWT_REFRESH_EXPIRATION');
+    const accessSecret =
+      this.configService.getOrThrow<string>('JWT_ACCESS_SECRET');
+    const refreshSecret =
+      this.configService.getOrThrow<string>('JWT_REFRESH_SECRET');
+    const accessExpiresIn = this.configService.getOrThrow<string>(
+      'JWT_ACCESS_EXPIRATION',
+    );
+    const refreshExpiresIn = this.configService.getOrThrow<string>(
+      'JWT_REFRESH_EXPIRATION',
+    );
     const accessTtlSeconds = this.parseDuration(accessExpiresIn);
     const refreshTtlSeconds = this.parseDuration(refreshExpiresIn);
 

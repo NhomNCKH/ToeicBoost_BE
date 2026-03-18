@@ -9,16 +9,16 @@ dotenv.config();
 const dbConfig = getDatabaseConfig();
 
 if (!dbConfig.password || typeof dbConfig.password !== 'string') {
-  throw new Error('DB_PASSWORD is missing or invalid in environment variables.');
+  throw new Error(
+    'DB_PASSWORD is missing or invalid in environment variables.',
+  );
 }
 
 const dataSource = new DataSource({
   ...dbConfig,
   entities: [path.join(__dirname, '../**/*.entity.{ts,js}')],
   synchronize: false,
-  migrations: [
-    CreateAuthTables1742238000000,
-  ],
+  migrations: [CreateAuthTables1742238000000],
   migrationsTableName: 'migrations',
 });
 

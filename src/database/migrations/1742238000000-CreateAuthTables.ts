@@ -86,8 +86,12 @@ export class CreateAuthTables1742238000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX IF EXISTS "idx_refresh_tokens_expires_at"`);
-    await queryRunner.query(`DROP INDEX IF EXISTS "idx_refresh_tokens_user_id"`);
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS "idx_refresh_tokens_expires_at"`,
+    );
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS "idx_refresh_tokens_user_id"`,
+    );
     await queryRunner.query(`DROP TABLE IF EXISTS "refresh_tokens"`);
 
     await queryRunner.query(`DROP INDEX IF EXISTS "idx_users_role"`);

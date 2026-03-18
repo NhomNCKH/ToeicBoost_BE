@@ -40,9 +40,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     console.log(
       `${ts()} ${c.bgRed}${c.bold} CRITICAL ${c.reset} ${c.red}${request.method} ${request.url} [${status}]${c.reset}`,
     );
-    console.log(
-      `${ts()}           ${c.red}${message}${c.reset}`,
-    );
+    console.log(`${ts()}           ${c.red}${message}${c.reset}`);
     if (exception instanceof Error && exception.stack) {
       console.log(`${c.dim}${exception.stack}${c.reset}`);
     }

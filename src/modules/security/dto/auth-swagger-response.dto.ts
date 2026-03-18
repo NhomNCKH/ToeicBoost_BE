@@ -43,7 +43,10 @@ export class LoginDataDto {
   @ApiProperty({ example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' })
   refreshToken: string;
 
-  @ApiProperty({ example: 900, description: 'Thời gian hết hạn access token (giây)' })
+  @ApiProperty({
+    example: 900,
+    description: 'Thời gian hết hạn access token (giây)',
+  })
   expiresIn: number;
 }
 

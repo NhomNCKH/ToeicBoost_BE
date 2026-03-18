@@ -17,9 +17,8 @@ export class StringHelper {
 
   static maskEmail(email: string): string {
     const [name, domain] = email.split('@');
-    const masked = name.length > 2
-      ? name[0] + '***' + name[name.length - 1]
-      : '***';
+    const masked =
+      name.length > 2 ? name[0] + '***' + name[name.length - 1] : '***';
     return `${masked}@${domain}`;
   }
 }

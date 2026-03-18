@@ -31,11 +31,15 @@ import { AppController } from './app.controller';
         database: config.getOrThrow<string>('DB_DATABASE'),
         synchronize: false,
         logging: config.get('DB_LOGGING') === 'true',
-        logger: config.get('DB_LOGGING') === 'true' ? new CustomTypeOrmLogger() : undefined,
+        logger:
+          config.get('DB_LOGGING') === 'true'
+            ? new CustomTypeOrmLogger()
+            : undefined,
         maxQueryExecutionTime: 1000,
-        ssl: config.get('DB_SSL') === 'true'
-          ? { rejectUnauthorized: false }
-          : false,
+        ssl:
+          config.get('DB_SSL') === 'true'
+            ? { rejectUnauthorized: false }
+            : false,
         entities: [DB_ENTITIES_PATH],
         autoLoadEntities: true,
         migrationsTableName: 'migrations',
@@ -45,10 +49,12 @@ import { AppController } from './app.controller';
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ([{
-        ttl: +config.getOrThrow('THROTTLE_TTL') * 1000,
-        limit: +config.getOrThrow('THROTTLE_LIMIT'),
-      }]),
+      useFactory: (config: ConfigService) => [
+        {
+          ttl: +config.getOrThrow('THROTTLE_TTL') * 1000,
+          limit: +config.getOrThrow('THROTTLE_LIMIT'),
+        },
+      ],
     }),
 
     SecurityModule,
