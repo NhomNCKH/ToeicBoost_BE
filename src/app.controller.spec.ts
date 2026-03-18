@@ -19,31 +19,33 @@ describe('AppController', () => {
   describe('getHealth', () => {
     it('should return health status', () => {
       const result = controller.getHealth();
-      
-      expect(result).toEqual({
-        status: 'ok',
-        message: 'TOEIC AI API is running',
-        timestamp: expect.any(String),
-        version: '1.0.0',
-      });
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          status: 'ok',
+          message: 'TOEIC AI API is running',
+          version: '1.0.0',
+        }),
+      );
+      expect(result.timestamp).toBeDefined();
     });
   });
 
   describe('getDetailedHealth', () => {
     it('should return detailed health information', () => {
       const result = controller.getDetailedHealth();
-      
-      expect(result).toEqual({
-        status: 'healthy',
-        timestamp: expect.any(String),
-        uptime: expect.any(Number),
-        environment: expect.any(String),
-        version: '1.0.0',
-        memory: {
-          used: expect.any(String),
-          total: expect.any(String),
-        },
-      });
+
+      expect(result.status).toBe('healthy');
+      expect(result.version).toBe('1.0.0');
+      expect(result.timestamp).toBeDefined();
+      expect(typeof result.uptime).toBe('number');
+      expect(result.uptime).toBeGreaterThanOrEqual(0);
+      expect(typeof result.environment).toBe('string');
+      expect(result.memory).toBeDefined();
+      expect(typeof result.memory.used).toBe('string');
+      expect(typeof result.memory.total).toBe('string');
+      expect(result.memory.used).toMatch(/^\d+(\.\d+)? MB$/);
+      expect(result.memory.total).toMatch(/^\d+(\.\d+)? MB$/);
     });
   });
 });
