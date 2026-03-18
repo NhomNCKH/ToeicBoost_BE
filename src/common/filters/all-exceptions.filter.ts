@@ -4,14 +4,24 @@ import {
   ExceptionFilter,
   HttpException,
   HttpStatus,
-  Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 
+const c = {
+  reset: '\x1b[0m',
+  bold: '\x1b[1m',
+  red: '\x1b[31m',
+  dim: '\x1b[2m',
+  gray: '\x1b[90m',
+  bgRed: '\x1b[41m',
+};
+
+function ts(): string {
+  return `${c.gray}${new Date().toLocaleTimeString('vi-VN', { hour12: false })}${c.reset}`;
+}
+
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
-  private readonly logger = new Logger(AllExceptionsFilter.name);
-
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
@@ -27,10 +37,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ? exception.message
         : 'Internal server error';
 
-    this.logger.error(
-      `${request.method} ${request.url} ${status}`,
-      exception instanceof Error ? exception.stack : String(exception),
+    console.log(
+      `${ts()} ${c.bgRed}${c.bold} CRITICAL ${c.reset} ${c.red}${request.method} ${request.url} [${status}]${c.reset}`,
     );
+    console.log(
+      `${ts()}           ${c.red}${message}${c.reset}`,
+    );
+    if (exception instanceof Error && exception.stack) {
+      console.log(`${c.dim}${exception.stack}${c.reset}`);
+    }
 
     response.status(status).json({
       statusCode: status,

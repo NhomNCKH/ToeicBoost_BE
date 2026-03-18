@@ -1,69 +1,179 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
-import { AuthGuard } from '@nestjs/passport';
-import { SecurityService } from './security.service';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Req,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import { Request } from 'express';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
-import { RegisterDto } from './dto/register.dto';
+import { IJwtPayload } from '../../common/interfaces/jwt-payload.interface';
+import {
+  AuthErrorDto,
+  LoginSuccessDto,
+  LogoutSuccessDto,
+  MeSuccessDto,
+  RefreshSuccessDto,
+  RegisterSuccessDto,
+} from './dto/auth-swagger-response.dto';
 import { LoginDto } from './dto/login.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { RegisterDto } from './dto/register.dto';
+import { IAuthRequestMeta } from './interfaces/auth-request.interface';
+import { SecurityService } from './security.service';
 
-@ApiTags('auth')
+@ApiTags('Authentication')
+@ApiBearerAuth()
 @Controller('auth')
 export class SecurityController {
   constructor(private readonly securityService: SecurityService) {}
 
   @Public()
   @Post('register')
-  async register(@Body() dto: RegisterDto) {
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Đăng ký tài khoản mới',
+    description:
+      'Tạo người dùng mới với email duy nhất. Hệ thống tự hash password bằng bcrypt trước khi lưu DB.',
+  })
+  @ApiBody({ type: RegisterDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Tạo tài khoản thành công',
+    type: RegisterSuccessDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid input data',
+    type: AuthErrorDto,
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Email already exists',
+    type: AuthErrorDto,
+  })
+  register(@Body() dto: RegisterDto) {
     return this.securityService.register(dto);
   }
 
   @Public()
-  @Post('verify-email')
-  async verifyEmail(@Body('token') token: string) {
-    return this.securityService.verifyEmail(token);
-  }
-
-  @Public()
   @Post('login')
-  async login(@Body() dto: LoginDto) {
-    return this.securityService.login(dto);
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Đăng nhập bằng email/password',
+    description:
+      'Xác thực thông tin đăng nhập, khóa tạm thời khi nhập sai nhiều lần, trả về access token + refresh token.',
+  })
+  @ApiBody({ type: LoginDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Đăng nhập thành công',
+    type: LoginSuccessDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid input data',
+    type: AuthErrorDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Email or password is incorrect',
+    type: AuthErrorDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Account temporarily locked',
+    type: AuthErrorDto,
+  })
+  login(@Body() dto: LoginDto, @Req() req: Request) {
+    return this.securityService.login(dto, this.getRequestMeta(req));
   }
 
+  @Public()
   @Post('refresh')
-  async refresh(@Body('refreshToken') refreshToken: string) {
-    return this.securityService.refreshToken(refreshToken);
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Làm mới token',
+    description:
+      'Dùng refresh token hợp lệ để cấp access token mới và rotate refresh token cũ.',
+  })
+  @ApiBody({ type: RefreshTokenDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Làm mới token thành công',
+    type: RefreshSuccessDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Refresh token không hợp lệ/hết hạn/đã thu hồi',
+    type: AuthErrorDto,
+  })
+  refreshToken(@Body() dto: RefreshTokenDto, @Req() req: Request) {
+    return this.securityService.refreshToken(dto, this.getRequestMeta(req));
   }
 
-  @UseGuards(AuthGuard('jwt'))
   @Post('logout')
-  async logout(@Req() req: { user: { sub: string } }) {
-    return this.securityService.logout(req.user.sub);
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Đăng xuất',
+    description:
+      'Thu hồi refresh token hiện tại để vô hiệu hóa phiên đăng nhập ở client.',
+  })
+  @ApiBody({ type: RefreshTokenDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Đăng xuất thành công',
+    type: LogoutSuccessDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Refresh token không tồn tại',
+    type: AuthErrorDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Thiếu hoặc sai access token',
+    type: AuthErrorDto,
+  })
+  logout(@Body() dto: RefreshTokenDto) {
+    return this.securityService.logout(dto);
   }
 
-  @Public()
-  @Post('forgot-password')
-  async forgotPassword(@Body('email') email: string) {
-    return this.securityService.forgotPassword(email);
+  @Get('me')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Lấy thông tin user hiện tại',
+    description:
+      'Trả về payload người dùng được giải mã từ access token (sub, email, role, iat, exp).',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lấy thông tin người dùng thành công',
+    type: MeSuccessDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Thiếu hoặc sai access token',
+    type: AuthErrorDto,
+  })
+  me(@CurrentUser() user: IJwtPayload) {
+    return this.securityService.getMe(user);
   }
 
-  @Public()
-  @Post('reset-password')
-  async resetPassword(
-    @Body('token') token: string,
-    @Body('newPassword') newPassword: string,
-  ) {
-    return this.securityService.resetPassword(token, newPassword);
-  }
-
-  @Public()
-  @Get('google')
-  async google() {
-    // TODO: redirect to Google OAuth
-  }
-
-  @Public()
-  @Get('google/callback')
-  async googleCallback(@Req() req: unknown) {
-    // TODO: handle Google OAuth callback
+  private getRequestMeta(req: Request): IAuthRequestMeta {
+    return {
+      ipAddress: req.ip ?? req.socket.remoteAddress ?? null,
+      userAgent: req.get('user-agent') ?? null,
+    };
   }
 }
