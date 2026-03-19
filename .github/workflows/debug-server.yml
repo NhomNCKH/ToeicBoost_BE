@@ -134,6 +134,15 @@ jobs:
               exit 1
           fi
           
+          # Test environment variables and database connection
+          echo ""
+          echo "🧪 Testing environment and database..."
+          if node test-env.js; then
+              echo "✅ Environment and database test passed"
+          else
+              echo "❌ Environment or database test failed"
+          fi
+          
           # Try to start manually with timeout
           echo ""
           echo "🚀 Testing manual start (30 second timeout)..."
