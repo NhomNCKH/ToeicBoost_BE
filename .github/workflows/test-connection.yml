@@ -1,0 +1,46 @@
+name: Test Connection
+
+on:
+  workflow_dispatch: # Manual trigger only
+
+jobs:
+  test:
+    name: Test SSH Connection
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 🔍 Test basic SSH connection
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        script: |
+          echo "✅ SSH connection successful!"
+          echo "Server: $(hostname)"
+          echo "User: $(whoami)"
+          echo "Date: $(date)"
+          
+          # Check system resources
+          echo ""
+          echo "💾 Memory:"
+          free -h
+          
+          echo ""
+          echo "💽 Disk:"
+          df -h
+          
+          # Check if project directory exists
+          echo ""
+          echo "📁 Project directory:"
+          if [ -d /var/www/toeicai/ToeicBoost_BE ]; then
+            echo "✅ Project directory exists"
+            cd /var/www/toeicai/ToeicBoost_BE
+            echo "Current location: $(pwd)"
+            echo "Files: $(ls -1 | wc -l) items"
+          else
+            echo "❌ Project directory not found"
+            echo "Available in /var/www:"
+            ls -la /var/www/ 2>/dev/null || echo "Cannot access /var/www"
+          fi
