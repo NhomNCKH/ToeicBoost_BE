@@ -36,145 +36,73 @@ jobs:
         username: ${{ secrets.SERVER_USER }}
         key: ${{ secrets.SERVER_SSH_KEY }}
         port: 22
+        command_timeout: 10m
         script: |
           set -e
           
-          echo "📁 Navigating to project directory..."
+          echo "� DEPLOYING TO PRODUCTION..."
+          
+          # Navigate to project
           cd /var/www/toeicai/ToeicBoost_BE
           
-          echo "� Current directory and git status:"
-          pwd
-          git status
-          
-          echo "� Pulling latest code from main branch..."
-          git fetch origin
-          git checkout main
-          git pull origin main
-          
-          echo "📋 Checking Node.js version:"
-          node --version
-          npm --version
-          
-          echo "� Installing dependencies..."
-          npm ci --production=false
-          
-          echo "🏗️ Building project..."
-          npm run build
-          
-          echo "🔄 Stopping existing application..."
-          # Kill existing processes more thoroughly
+          # Stop existing app
+          echo "🛑 Stopping existing application..."
           pkill -f "node.*dist/main.js" || true
           pkill -f "npm.*start:prod" || true
-          pkill -f "nest start" || true
+          lsof -ti:3001 | xargs kill -9 || true
           sleep 5
           
-          echo "🧹 Cleaning up old processes..."
-          # Make sure no Node.js processes are running on port 3001
-          lsof -ti:3001 | xargs kill -9 || true
-          sleep 2
+          # Update code
+          echo "📥 Updating code..."
+          git fetch origin
+          git reset --hard origin/main
+          git clean -fd
           
-          echo "🌍 Setting up environment..."
-          # Create .env file if it doesn't exist
+          # Setup environment
+          echo "� Setting up environment..."
           if [ ! -f .env ]; then
-            echo "📝 Creating .env file from .env.example..."
             cp .env.example .env
+            sed -i 's/DB_HOST=localhost/DB_HOST=144.91.104.237/' .env
+            sed -i 's/DB_PORT=5432/DB_PORT=5433/' .env
+            sed -i 's/DB_USERNAME=postgres/DB_USERNAME=toeicai_user/' .env
+            sed -i 's/DB_PASSWORD=postgres/DB_PASSWORD=StrongPassword123!/' .env
+            sed -i 's/DB_DATABASE=toeic_ai/DB_DATABASE=toeicai/' .env
           fi
           
-          # Ensure NODE_ENV is set correctly
-          export NODE_ENV=development
+          # Install and build
+          echo "📦 Installing dependencies..."
+          npm install
           
-          echo "🚀 Starting new application..."
-          # Start new process with explicit environment
-          NODE_ENV=development nohup npm run start:prod > app.log 2>&1 &
+          echo "�️ Building project..."
+          npm run build
           
-          echo "⏳ Waiting for application to start..."
-          sleep 10
-          
-          # Check if process started
-          echo "🔍 Checking application process..."
-          if pgrep -f "node.*dist/main.js" > /dev/null; then
-            echo "✅ Application process is running (PID: $(pgrep -f 'node.*dist/main.js'))"
-            
-            # Wait for app to fully initialize
-            echo "⏳ Waiting for app initialization..."
-            sleep 8
-            
-            # Check if port is listening
-            if netstat -tuln | grep :3001 > /dev/null; then
-              echo "✅ Port 3001 is listening"
-            else
-              echo "❌ Port 3001 is not listening"
-              echo "📋 Port status:"
-              netstat -tuln | grep 3001 || echo "No processes on port 3001"
-            fi
-            
-            # Test endpoints with more detailed output
-            echo "🏥 Testing health endpoint (/)..."
-            if curl -f -s -m 10 http://localhost:3001/ > /tmp/health_test.json; then
-              echo "✅ Health endpoint is responding"
-              echo "📄 Response: $(cat /tmp/health_test.json)"
-            else
-              echo "❌ Health endpoint failed"
-              echo "📋 Curl exit code: $?"
-            fi
-            
-            echo "🏥 Testing detailed health endpoint (/health)..."
-            if curl -f -s -m 10 http://localhost:3001/health > /tmp/health_detail_test.json; then
-              echo "✅ Detailed health endpoint is responding"
-              echo "� Response: $(cat /tmp/health_detail_test.json)"
-            else
-              echo "❌ Detailed health endpoint failed"
-            fi
-            
-            echo "📚 Testing Swagger documentation (/api/v1/docs)..."
-            if curl -f -s -m 10 http://localhost:3001/api/v1/docs > /dev/null; then
-              echo "✅ Swagger docs are responding"
-            else
-              echo "❌ Swagger docs failed"
-            fi
-            
-            echo "🔐 Testing auth API (/api/v1/auth/register)..."
-            if curl -f -s -m 10 -X POST -H "Content-Type: application/json" -d '{}' http://localhost:3001/api/v1/auth/register > /tmp/auth_test.json 2>&1; then
-              echo "✅ Auth API is responding"
-            else
-              echo "⚠️ Auth API test (expected validation error): $(cat /tmp/auth_test.json 2>/dev/null || echo 'No response')"
-            fi
-            
-            echo "📊 Final Application Status:"
-            echo "  🌐 External Health: http://144.91.104.237:3001/"
-            echo "  🏥 External Health Detail: http://144.91.104.237:3001/health"
-            echo "  📚 External Swagger: http://144.91.104.237:3001/api/v1/docs"
-            echo "  🔐 External Auth API: http://144.91.104.237:3001/api/v1/auth/*"
-            
-          else
-            echo "❌ Application failed to start"
-            echo "📋 Last 50 lines of application logs:"
-            tail -50 app.log || echo "No logs found"
-            echo ""
-            echo "📋 System processes:"
-            ps aux | grep -E "(node|npm)" | grep -v grep || echo "No Node.js processes found"
-            echo ""
-            echo "📋 Port usage:"
-            netstat -tuln | grep 3001 || echo "Port 3001 not in use"
-            echo ""
-            echo "📋 System resources:"
-            free -h
-            df -h
+          # Verify build
+          if [ ! -f dist/main.js ]; then
+            echo "❌ Build failed"
             exit 1
           fi
           
-          echo "🎉 Deployment completed successfully!"
+          # Start application
+          echo "🚀 Starting application..."
+          NODE_ENV=development nohup npm run start:prod > app.log 2>&1 &
           
-    - name: 📊 Deployment Status
+          # Wait for startup
+          echo "⏳ Waiting for startup..."
+          sleep 20
+          
+          # Verify it's running
+          if curl -f -s -m 10 http://localhost:3001/ > /dev/null; then
+            echo "✅ Application is running successfully!"
+            echo "🌐 Available at: http://144.91.104.237:3001/"
+          else
+            echo "❌ Application failed to start"
+            tail -20 app.log || echo "No logs"
+            exit 1
+          fi
+          
+    - name: ✅ Success
       if: success()
       run: |
-        echo "✅ Deployment successful!"
-        echo "🌐 API: http://${{ secrets.SERVER_HOST }}:3001"
-        echo "📚 Docs: http://${{ secrets.SERVER_HOST }}:3001/api/v1/docs"
-        echo "🏥 Health: http://${{ secrets.SERVER_HOST }}:3001/"
-        
-    - name: 🚨 Notify on failure
-      if: failure()
-      run: |
-        echo "❌ Deployment failed!"
-        echo "Please check the logs and server status."
+        echo "🎉 Deployment successful!"
+        echo "API: http://${{ secrets.SERVER_HOST }}:3001"
+        echo "Swagger: http://${{ secrets.SERVER_HOST }}:3001/api/v1/docs"
