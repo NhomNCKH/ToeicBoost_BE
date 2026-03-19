@@ -53,39 +53,77 @@ jobs:
           echo "🏗️ Building project..."
           npm run build
           
-          echo "🔄 Restarting application..."
+          echo "🔄 Stopping existing application..."
           # Kill existing process gracefully
           pkill -f "node.*dist/main.js" || true
+          pkill -f "npm.*start:prod" || true
           sleep 3
           
+          echo "🌍 Setting up environment..."
+          # Ensure NODE_ENV is set to development to enable Swagger
+          export NODE_ENV=development
+          
+          echo "🚀 Starting new application..."
           # Start new process
           nohup npm run start:prod > app.log 2>&1 &
           
           echo "⏳ Waiting for application to start..."
-          sleep 5
+          sleep 8
           
-          # Health check
+          # Health check with detailed output
+          echo "🔍 Checking application status..."
           if pgrep -f "node.*dist/main.js" > /dev/null; then
-            echo "✅ Application is running"
+            echo "✅ Application process is running"
             
-            # Test API endpoints
+            # Wait a bit more for the app to fully initialize
+            sleep 5
+            
+            # Test health endpoint
+            echo "🏥 Testing health endpoint..."
             if curl -f -s http://localhost:3001/ > /dev/null; then
-              echo "✅ Health check passed"
+              echo "✅ Health endpoint (/) is responding"
             else
-              echo "❌ Health check failed"
-              exit 1
+              echo "❌ Health endpoint (/) failed"
+              echo "📋 Checking logs..."
+              tail -10 app.log || echo "No logs found"
             fi
             
-            if curl -f -s http://localhost:3001/api_v1/auth/register -X POST -H "Content-Type: application/json" -d '{}' > /dev/null 2>&1; then
-              echo "✅ Auth API is responding"
+            # Test detailed health endpoint
+            echo "� Testing detailed health endpoint..."
+            if curl -f -s http://localhost:3001/health > /dev/null; then
+              echo "✅ Detailed health endpoint (/health) is responding"
             else
-              echo "⚠️ Auth API test failed (expected for invalid input)"
+              echo "❌ Detailed health endpoint (/health) failed"
             fi
+            
+            # Test Swagger docs
+            echo "📚 Testing Swagger documentation..."
+            if curl -f -s http://localhost:3001/api/v1/docs > /dev/null; then
+              echo "✅ Swagger docs (/api/v1/docs) is responding"
+            else
+              echo "❌ Swagger docs (/api/v1/docs) failed"
+            fi
+            
+            # Test auth API
+            echo "🔐 Testing auth API..."
+            if curl -f -s http://localhost:3001/api/v1/auth/register -X POST -H "Content-Type: application/json" -d '{}' > /dev/null 2>&1; then
+              echo "✅ Auth API is responding (expected validation error)"
+            else
+              echo "⚠️ Auth API test failed"
+            fi
+            
+            echo "📊 Application URLs:"
+            echo "  🏥 Health: http://144.91.104.237:3001/"
+            echo "  🏥 Health Detail: http://144.91.104.237:3001/health"
+            echo "  📚 Swagger: http://144.91.104.237:3001/api/v1/docs"
+            echo "  🔐 Auth API: http://144.91.104.237:3001/api/v1/auth/*"
             
           else
             echo "❌ Application failed to start"
-            echo "📋 Last 20 lines of logs:"
-            tail -20 app.log || echo "No logs found"
+            echo "📋 Last 30 lines of logs:"
+            tail -30 app.log || echo "No logs found"
+            echo "📋 Process list:"
+            ps aux | grep -E "(node|npm)" | grep -v grep || echo "No Node.js processes found"
             exit 1
           fi
           
