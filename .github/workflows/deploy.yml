@@ -1,9 +1,9 @@
 name: Deploy to Production
 
 on:
-  # push:
-  #   branches: [ main ]  # Disabled due to SSH issues
-  workflow_dispatch: # Manual trigger only
+  push:
+    branches: [ main ]
+  workflow_dispatch: # Manual trigger also available
 
 jobs:
   deploy:
@@ -44,31 +44,53 @@ jobs:
           cd /var/www/toeicai/ToeicBoost_BE || exit 1
           
           # Kill existing processes
+          sudo kill -9 $(sudo lsof -t -i:3001) 2>/dev/null || true
           pkill -f "node.*dist/main.js" || true
           pkill -f "npm.*start:prod" || true
-          sleep 3
+          sleep 5
           
-          # Update code
-          git fetch origin
+          # Check current git status
+          echo "Current git status:"
+          git status
+          git log --oneline -3
+          
+          # Ensure we're using SSH for git operations
+          git remote set-url origin git@github.com:NhomNCKH/ToeicBoost_BE.git
+          
+          # Test SSH connection
+          ssh -T git@github.com || echo "SSH test completed"
+          
+          # Force update to latest code
+          git fetch origin main
           git reset --hard origin/main
+          git clean -fd
+          
+          echo "After git pull:"
+          git log --oneline -3
           
           # Install dependencies
           npm install --production=false
           
-          # Build
+          # Build project
           npm run build
           
-          # Start app
+          # Start application
           NODE_ENV=development nohup npm run start:prod > app.log 2>&1 &
           
-          # Wait and check
+          # Wait for startup
           sleep 15
           
-          # Simple health check
-          if curl -s http://localhost:3001/ | grep -q "ok"; then
-            echo "✅ Deployment successful"
+          # Health check with detailed output
+          echo "Testing health endpoints:"
+          curl -s http://localhost:3001/ || echo "Root endpoint failed"
+          curl -s http://localhost:3001/health || echo "Health endpoint failed"
+          
+          # Check if app is running
+          if curl -s http://localhost:3001/ | grep -q "TOEIC AI API is running"; then
+            echo "✅ Deployment successful - API is responding"
           else
-            echo "❌ Health check failed"
+            echo "❌ Health check failed - checking logs:"
+            tail -20 app.log
             exit 1
           fi
           

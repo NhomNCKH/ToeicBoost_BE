@@ -1,0 +1,65 @@
+name: Test Server Connection
+
+on:
+  workflow_dispatch: # Manual trigger only
+
+jobs:
+  test:
+    name: Test Server
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 🔍 Test SSH and deploy
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        script: |
+          echo "=== SERVER CONNECTION TEST ==="
+          echo "Server: $(hostname)"
+          echo "User: $(whoami)"
+          echo "Date: $(date)"
+          
+          # Check project directory
+          if [ -d /var/www/toeicai/ToeicBoost_BE ]; then
+            echo "✅ Project directory exists"
+            cd /var/www/toeicai/ToeicBoost_BE
+            
+            # Quick deployment
+            echo "🚀 Starting quick deployment..."
+            
+            # Stop existing
+            pkill -f "node.*dist/main.js" || true
+            pkill -f "npm.*start:prod" || true
+            sleep 3
+            
+            # Update code
+            git fetch origin
+            git reset --hard origin/main
+            
+            # Install and build
+            npm install
+            npm run build
+            
+            # Start app
+            NODE_ENV=development nohup npm run start:prod > app.log 2>&1 &
+            
+            # Wait and test
+            sleep 15
+            
+            # Test health endpoint
+            if curl -s http://localhost:3001/ | grep -q "ok"; then
+              echo "✅ DEPLOYMENT SUCCESSFUL!"
+              echo "🌐 API: http://144.91.104.237:3001/"
+              echo "📚 Swagger: http://144.91.104.237:3001/api/v1/docs"
+            else
+              echo "❌ Health check failed"
+              echo "Logs:"
+              tail -10 app.log || echo "No logs"
+            fi
+            
+          else
+            echo "❌ Project directory not found"
+          fi
