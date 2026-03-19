@@ -1,0 +1,65 @@
+name: Simple Server Check
+
+on:
+  workflow_dispatch: # Manual trigger only
+
+jobs:
+  check:
+    name: Simple Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 🔍 Basic server check
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 5m
+        script: |
+          echo "=== BASIC SERVER CHECK ==="
+          
+          # Basic system info
+          echo "Server: $(hostname)"
+          echo "Date: $(date)"
+          echo "Uptime: $(uptime)"
+          
+          # Memory and disk
+          echo ""
+          echo "Memory:"
+          free -h
+          
+          echo ""
+          echo "Disk:"
+          df -h
+          
+          # Check if project directory exists
+          echo ""
+          echo "Project directory:"
+          if [ -d /var/www/toeicai/ToeicBoost_BE ]; then
+            echo "✅ Project directory exists"
+            cd /var/www/toeicai/ToeicBoost_BE
+            echo "Contents: $(ls -la | wc -l) items"
+          else
+            echo "❌ Project directory missing"
+            exit 1
+          fi
+          
+          # Check Node.js
+          echo ""
+          echo "Node.js version: $(node --version 2>/dev/null || echo 'Not installed')"
+          echo "NPM version: $(npm --version 2>/dev/null || echo 'Not installed')"
+          
+          # Check running processes
+          echo ""
+          echo "Node processes:"
+          ps aux | grep -E "(node|npm)" | grep -v grep || echo "No Node.js processes"
+          
+          # Check port 3001
+          echo ""
+          echo "Port 3001:"
+          netstat -tuln | grep 3001 || echo "Port 3001 not in use"
+          
+          echo ""
+          echo "=== CHECK COMPLETE ==="
