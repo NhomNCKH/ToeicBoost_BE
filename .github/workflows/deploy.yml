@@ -1,9 +1,9 @@
 name: Deploy to Production
 
 on:
-  push:
-    branches: [ main ]
-  workflow_dispatch: # Allow manual trigger
+  # push:
+  #   branches: [ main ]  # Disabled due to SSH issues
+  workflow_dispatch: # Manual trigger only
 
 jobs:
   deploy:
