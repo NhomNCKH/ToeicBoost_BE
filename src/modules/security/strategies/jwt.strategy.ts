@@ -7,11 +7,7 @@ import { IJwtPayload } from '../../../common/interfaces/jwt-payload.interface';
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(configService: ConfigService) {
-    const secret = configService.get<string>('JWT_ACCESS_SECRET');
-
-    if (!secret) {
-      throw new UnauthorizedException('JWT access secret is not configured');
-    }
+    const secret = configService.getOrThrow<string>('JWT_ACCESS_SECRET');
 
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
