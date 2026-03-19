@@ -1,0 +1,89 @@
+name: Quick Debug
+
+on:
+  workflow_dispatch: # Manual trigger only
+
+jobs:
+  debug:
+    name: Quick Server Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 🔍 Quick server status check
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        script: |
+          echo "=== QUICK SERVER DEBUG ==="
+          
+          # Basic info
+          echo "📁 Current working directory:"
+          pwd
+          
+          echo "📋 Server info:"
+          uname -a
+          
+          echo "💾 Memory usage:"
+          free -h
+          
+          echo "💽 Disk usage:"
+          df -h
+          
+          # Navigate to project
+          echo "📂 Navigating to project..."
+          cd /var/www/toeicai/ToeicBoost_BE || { echo "❌ Project directory not found"; exit 1; }
+          
+          echo "📋 Project directory contents:"
+          ls -la
+          
+          echo "🔍 Node.js processes:"
+          ps aux | grep -E "(node|npm)" | grep -v grep || echo "No Node.js processes"
+          
+          echo "🔍 Port 3001 status:"
+          netstat -tuln | grep 3001 || echo "Port 3001 not in use"
+          
+          echo "📋 Git status:"
+          git status --porcelain
+          git log --oneline -3
+          
+          echo "📄 Environment file:"
+          if [ -f .env ]; then
+            echo "✅ .env exists ($(wc -l < .env) lines)"
+          else
+            echo "❌ .env missing"
+          fi
+          
+          echo "📦 Build directory:"
+          if [ -d dist ]; then
+            echo "✅ dist exists ($(ls dist | wc -l) files)"
+            ls -la dist/
+          else
+            echo "❌ dist missing"
+          fi
+          
+          echo "📋 Recent logs:"
+          if [ -f app.log ]; then
+            echo "--- Last 10 lines of app.log ---"
+            tail -10 app.log
+          else
+            echo "No app.log found"
+          fi
+          
+          echo "🧪 Quick test - try to start app for 10 seconds:"
+          timeout 10s npm run start:prod > quick_test.log 2>&1 &
+          TEST_PID=$!
+          sleep 8
+          
+          if ps -p $TEST_PID > /dev/null 2>&1; then
+            echo "✅ App started successfully"
+            kill $TEST_PID 2>/dev/null || true
+          else
+            echo "❌ App failed to start"
+            echo "--- Quick test log ---"
+            cat quick_test.log 2>/dev/null || echo "No test log"
+          fi
+          
+          echo "=== DEBUG COMPLETE ==="
