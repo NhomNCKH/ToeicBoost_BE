@@ -6,15 +6,19 @@ import {
   HttpStatus,
   Post,
   Req,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiBody,
+  ApiConsumes,
   ApiOperation,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import { Request } from 'express';
+import type { Express } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { IJwtPayload } from '../../common/interfaces/jwt-payload.interface';
@@ -26,11 +30,14 @@ import {
   RefreshSuccessDto,
   RegisterSuccessDto,
 } from './dto/auth-swagger-response.dto';
+import { AttachAvatarFromS3Dto } from './dto/attach-avatar-from-s3.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
 import { IAuthRequestMeta } from './interfaces/auth-request.interface';
 import { SecurityService } from './security.service';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 
 @ApiTags('Authentication')
 @ApiBearerAuth()
@@ -168,6 +175,86 @@ export class SecurityController {
   })
   me(@CurrentUser() user: IJwtPayload) {
     return this.securityService.getMe(user);
+  }
+
+  @Post('me/avatar')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Upload avatar lên S3',
+    description:
+      'Nhận file ảnh (multipart/form-data), upload lên S3 và lưu URL vào DB (users.avatar_url).',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+      required: ['file'],
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Upload thành công',
+    schema: {
+      type: 'object',
+      properties: {
+        avatarUrl: { type: 'string' },
+        s3Key: { type: 'string' },
+      },
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+      fileFilter: (req, file, cb) => {
+        if (file.mimetype?.startsWith('image/')) {
+          cb(null, true);
+          return;
+        }
+        cb(null, false);
+      },
+    }),
+  )
+  uploadAvatar(
+    @CurrentUser('sub') userId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.securityService.uploadAvatar(userId, file);
+  }
+
+  @Get('me/avatar')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Lấy avatar của user hiện tại',
+    description: 'Trả về avatarUrl đã lưu trong DB.',
+  })
+  getAvatar(@CurrentUser('sub') userId: string) {
+    return this.securityService.getAvatar(userId);
+  }
+
+  @Post('me/avatar/s3')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Gắn avatar từ s3Key (dành cho luồng pre-signed PUT)',
+    description:
+      'FE PUT ảnh trực tiếp lên S3 bằng pre-signed PUT xong sẽ gọi endpoint này để backend update users.avatar_url.',
+  })
+  @ApiBody({ type: AttachAvatarFromS3Dto })
+  @ApiResponse({
+    status: 200,
+    description: 'Cập nhật avatar thành công',
+  })
+  attachAvatarFromS3(
+    @CurrentUser('sub') userId: string,
+    @Body() dto: AttachAvatarFromS3Dto,
+  ) {
+    return this.securityService.attachAvatarFromS3Key(userId, dto.s3Key);
   }
 
   private getRequestMeta(req: Request): IAuthRequestMeta {
