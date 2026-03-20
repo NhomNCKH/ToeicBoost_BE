@@ -1,0 +1,200 @@
+name: Setup Fresh Server
+
+on:
+  workflow_dispatch: # Manual trigger only
+
+jobs:
+  setup:
+    name: Setup Fresh Server
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 🔧 Fresh Server Setup
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 10m
+        script: |
+          set -e
+          echo "🔧 Setting up fresh server..."
+          
+          # Update system
+          echo "📦 Updating system..."
+          sudo apt update
+          
+          # Install Node.js 20 if not exists
+          if ! command -v node >/dev/null 2>&1; then
+            echo "📦 Installing Node.js 20..."
+            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+            sudo apt-get install -y nodejs
+          else
+            echo "✅ Node.js already installed: $(node --version)"
+          fi
+          
+          # Install Git if not exists
+          if ! command -v git >/dev/null 2>&1; then
+            echo "📦 Installing Git..."
+            sudo apt install -y git
+          else
+            echo "✅ Git already installed: $(git --version)"
+          fi
+          
+          # Install curl if not exists
+          if ! command -v curl >/dev/null 2>&1; then
+            echo "📦 Installing curl..."
+            sudo apt install -y curl
+          else
+            echo "✅ curl already installed"
+          fi
+          
+          # Create project directory with proper permissions
+          echo "📁 Setting up project directory..."
+          sudo mkdir -p /var/www/toeicai
+          sudo chown -R $USER:$USER /var/www/toeicai
+          chmod 755 /var/www/toeicai
+          
+          # Setup GitHub SSH key if missing
+          if [ ! -f ~/.ssh/github_deploy ]; then
+            echo "🔑 Setting up GitHub SSH key..."
+            
+            # Create SSH directory
+            mkdir -p ~/.ssh
+            chmod 700 ~/.ssh
+            
+            # Create a temporary GitHub key (you'll need to replace this)
+            cat > ~/.ssh/github_deploy << 'EOF'
+-----BEGIN OPENSSH PRIVATE KEY-----
+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
+-----END OPENSSH PRIVATE KEY-----
+EOF
+            
+            chmod 600 ~/.ssh/github_deploy
+            
+            # Create SSH config
+            cat > ~/.ssh/config << 'EOF'
+Host github.com
+    HostName github.com
+    User git
+    IdentityFile ~/.ssh/github_deploy
+    StrictHostKeyChecking no
+EOF
+            chmod 600 ~/.ssh/config
+            
+            echo "✅ GitHub SSH key setup completed"
+          else
+            echo "✅ GitHub SSH key already exists"
+          fi
+          
+          # Test GitHub connection
+          echo "🔍 Testing GitHub connection..."
+          ssh -T git@github.com 2>&1 | head -3 || echo "GitHub SSH test completed"
+          
+          # Clone project
+          cd /var/www/toeicai
+          if [ ! -d "ToeicBoost_BE" ]; then
+            echo "📥 Cloning project..."
+            git clone git@github.com:NhomNCKH/ToeicBoost_BE.git || {
+              echo "SSH clone failed, trying HTTPS..."
+              git clone https://github.com/NhomNCKH/ToeicBoost_BE.git
+            }
+          else
+            echo "✅ Project already exists"
+          fi
+          
+          cd ToeicBoost_BE
+          
+          # Create production .env
+          echo "🔧 Creating production .env..."
+          cat > .env << 'EOF'
+NODE_ENV=production
+APP_PORT=3001
+APP_NAME=toeic-ai-api
+API_PREFIX=api/v1
+
+# Database
+DB_HOST=localhost
+DB_PORT=5432
+DB_USERNAME=toeicai_user
+DB_PASSWORD=StrongPassword123!
+DB_DATABASE=toeicai
+DB_SYNCHRONIZE=false
+DB_LOGGING=false
+DB_SSL=false
+
+# Redis
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+REDIS_DB=0
+
+# JWT
+JWT_ACCESS_SECRET=prod-access-secret-$(date +%s)
+JWT_ACCESS_EXPIRATION=15m
+JWT_REFRESH_SECRET=prod-refresh-secret-$(date +%s)
+JWT_REFRESH_EXPIRATION=7d
+EOF
+          
+          # Install dependencies
+          echo "📦 Installing dependencies..."
+          npm install --production=false
+          
+          # Build project
+          echo "🏗️ Building project..."
+          npm run build
+          
+          echo "🎉 Fresh server setup completed!"
+          echo "✅ Node.js: $(node --version)"
+          echo "✅ npm: $(npm --version)"
+          echo "✅ Git: $(git --version)"
+          echo "✅ Project directory: /var/www/toeicai/ToeicBoost_BE"
+          echo "✅ Dependencies installed"
+          echo "✅ Project built"
