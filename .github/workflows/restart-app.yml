@@ -1,0 +1,150 @@
+name: 🔄 Restart Application
+
+on:
+  workflow_dispatch:
+
+jobs:
+  restart:
+    name: Restart Application
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 🔄 Restart application on server
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 10m
+        script: |
+          echo "🔄 RESTARTING APPLICATION"
+          echo "========================"
+          
+          BASE_DIR="/var/www/toeicai/ToeicBoost_BE"
+          
+          # Determine which directory structure to use
+          if [ -d "$BASE_DIR/current" ]; then
+            echo "✅ Using new deployment structure"
+            cd "$BASE_DIR/current"
+          else
+            echo "⚠️ Using old deployment structure"
+            cd "$BASE_DIR"
+          fi
+          
+          echo "📍 Working directory: $(pwd)"
+          
+          # Kill existing processes
+          echo "🧹 Stopping existing processes..."
+          if [ -f app.pid ]; then
+            OLD_PID=$(cat app.pid)
+            echo "Found existing PID: $OLD_PID"
+            if kill -0 $OLD_PID 2>/dev/null; then
+              echo "Stopping process $OLD_PID..."
+              kill $OLD_PID
+              sleep 3
+              if kill -0 $OLD_PID 2>/dev/null; then
+                echo "Force killing process $OLD_PID..."
+                kill -9 $OLD_PID
+              fi
+            fi
+            rm -f app.pid
+          fi
+          
+          # Force kill any remaining processes
+          sudo pkill -9 -f "node.*dist/main" 2>/dev/null || true
+          sudo pkill -9 -f "npm.*start:prod" 2>/dev/null || true
+          sudo fuser -k 3001/tcp 2>/dev/null || true
+          sleep 2
+          
+          # Verify cleanup
+          if sudo lsof -i:3001 2>/dev/null; then
+            echo "⚠️ Port 3001 still in use:"
+            sudo lsof -i:3001
+            echo "Force killing port 3001..."
+            sudo fuser -k 3001/tcp 2>/dev/null || true
+            sleep 2
+          fi
+          
+          # Check if we have the built application
+          if [ ! -f "dist/main.js" ]; then
+            echo "❌ Built application not found (dist/main.js)"
+            echo "Available files:"
+            ls -la
+            if [ -d "dist" ]; then
+              echo "Contents of dist directory:"
+              ls -la dist/
+            fi
+            exit 1
+          fi
+          
+          # Check if we have package.json
+          if [ ! -f "package.json" ]; then
+            echo "❌ package.json not found"
+            exit 1
+          fi
+          
+          # Start application
+          echo "🚀 Starting application..."
+          export NODE_ENV=production
+          nohup npm run start:prod > app.log 2>&1 &
+          APP_PID=$!
+          echo $APP_PID > app.pid
+          echo "📝 Application started with PID: $APP_PID"
+          
+          # Monitor startup
+          echo "⏳ Monitoring startup for 20 seconds..."
+          for i in {1..20}; do
+            if kill -0 $APP_PID 2>/dev/null; then
+              echo "⏳ Process running... ($i/20)"
+              sleep 1
+            else
+              echo "❌ Process died at second $i"
+              echo "📋 Application logs:"
+              tail -30 app.log
+              exit 1
+            fi
+          done
+          
+          # Quick health checks
+          echo "🏥 Health checks..."
+          
+          # Check port binding
+          if sudo lsof -i:3001 >/dev/null 2>&1; then
+            echo "✅ Port 3001 is bound"
+          else
+            echo "❌ Port 3001 not bound"
+            echo "📋 Recent logs:"
+            tail -20 app.log
+            exit 1
+          fi
+          
+          # Test HTTP endpoint
+          echo "🌐 Testing HTTP endpoint..."
+          for i in {1..5}; do
+            if curl -s --connect-timeout 3 --max-time 5 http://localhost:3001/ >/dev/null 2>&1; then
+              echo "✅ HTTP endpoint responding"
+              echo "🎉 APPLICATION RESTART SUCCESSFUL!"
+              echo "📊 Status:"
+              echo "  - Process PID: $APP_PID"
+              echo "  - Port: 3001 ✅"
+              echo "  - HTTP: ✅"
+              exit 0
+            else
+              echo "⏳ Testing HTTP... ($i/5)"
+              sleep 2
+            fi
+          done
+          
+          echo "⚠️ HTTP endpoint not responding yet, but process is running"
+          echo "📋 Recent logs:"
+          tail -15 app.log
+          echo "Application may need more time to start up"
+          
+    - name: ✅ Success notification
+      if: success()
+      run: echo "🎉 Application restarted successfully!"
+      
+    - name: ❌ Failure notification
+      if: failure()
+      run: echo "❌ Application restart failed - check logs above"

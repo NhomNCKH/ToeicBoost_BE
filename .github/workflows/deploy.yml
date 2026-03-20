@@ -3,11 +3,11 @@ name: Deploy to Production
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: # Manual trigger also available
+  workflow_dispatch:
 
 jobs:
-  deploy:
-    name: Deploy to Server
+  build:
+    name: Build Application
     runs-on: ubuntu-latest
     
     steps:
@@ -29,110 +29,218 @@ jobs:
     - name: 🏗️ Build project
       run: npm run build
       
-    - name: 🚀 Deploy via SSH
+    - name: 📦 Create deployment package
+      run: |
+        # Create deployment directory
+        mkdir -p deploy-package
+        
+        # Copy built application
+        cp -r dist deploy-package/
+        
+        # Copy package files (only production dependencies)
+        cp package.json deploy-package/
+        cp package-lock.json deploy-package/
+        
+        # Copy other necessary files
+        cp -r src deploy-package/ 2>/dev/null || true
+        
+        # Create deployment info
+        echo "Build Date: $(date)" > deploy-package/build-info.txt
+        echo "Commit: $(git rev-parse HEAD)" >> deploy-package/build-info.txt
+        echo "Branch: $(git branch --show-current)" >> deploy-package/build-info.txt
+        
+        # Create archive
+        tar -czf deployment.tar.gz -C deploy-package .
+        
+    - name: 📤 Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts
+        path: deployment.tar.gz
+        retention-days: 30
+
+  deploy:
+    name: Deploy to Server
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 15
+    
+    steps:
+    - name: 📥 Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: build-artifacts
+        
+    - name: 🚀 Deploy to server
       uses: appleboy/ssh-action@v1.1.0
       with:
         host: ${{ secrets.SERVER_HOST }}
         username: ${{ secrets.SERVER_USER }}
         key: ${{ secrets.SERVER_SSH_KEY }}
         port: 22
-        command_timeout: 30m
-        debug: true
+        command_timeout: 15m
+        sync: true
         script: |
-          set -e  # Exit on any error
-          echo "🚀 Starting deployment..."
+          echo "🚀 DEPLOYMENT STARTING..."
           
-          # Navigate to project directory
-          echo "📁 Navigating to project directory..."
-          cd /var/www/toeicai/ToeicBoost_BE || {
-            echo "❌ Failed to navigate to project directory"
-            echo "Creating project directory..."
-            mkdir -p /var/www/toeicai
-            cd /var/www/toeicai
-            git clone git@github.com:NhomNCKH/ToeicBoost_BE.git || {
-              echo "❌ Failed to clone repository"
-              exit 1
-            }
-            cd ToeicBoost_BE
-          }
+          PROJECT_DIR="/var/www/toeicai/ToeicBoost_BE"
           
-          # Kill existing processes quickly
-          echo "🔄 Stopping existing processes..."
-          pkill -f "node.*dist/main" 2>/dev/null || echo "No node process found"
-          pkill -f "npm.*start:prod" 2>/dev/null || echo "No npm process found"
-          sleep 2
+          # 1. AGGRESSIVE CLEANUP
+          echo "🧹 Killing all existing processes..."
+          sudo pkill -9 -f "node.*dist/main" 2>/dev/null || true
+          sudo pkill -9 -f "npm.*start:prod" 2>/dev/null || true
+          sudo fuser -k 3001/tcp 2>/dev/null || true
+          sleep 3
           
-          # Ensure we're using SSH for git operations
-          echo "🔧 Setting up git remote..."
-          git remote set-url origin git@github.com:NhomNCKH/ToeicBoost_BE.git
+          # 2. PREPARE DEPLOYMENT DIRECTORY
+          echo "📁 Preparing deployment directory..."
+          sudo mkdir -p "$PROJECT_DIR"
+          sudo chown -R $USER:$USER /var/www/toeicai
+          cd "$PROJECT_DIR"
           
-          # Force update to latest code (faster method)
-          echo "📥 Fetching latest code..."
-          git fetch origin main --depth=1 || {
-            echo "❌ Failed to fetch from origin"
-            exit 1
-          }
-          
-          git reset --hard origin/main || {
-            echo "❌ Failed to reset to origin/main"
-            exit 1
-          }
-          
-          # Install dependencies with cache
-          echo "📦 Installing dependencies..."
-          npm ci --production=false || {
-            echo "❌ Failed to install dependencies"
-            exit 1
-          }
-          
-          # Build project
-          echo "🏗️ Building project..."
-          npm run build || {
-            echo "❌ Failed to build project"
-            exit 1
-          }
-          
-          # Start application in background
-          echo "🚀 Starting application..."
-          NODE_ENV=production nohup npm run start:prod > app.log 2>&1 &
-          APP_PID=$!
-          echo "Application started with PID: $APP_PID"
-          
-          # Quick health check
-          echo "⏳ Waiting for application startup..."
-          sleep 10
-          
-          # Check if process is still running
-          if kill -0 $APP_PID 2>/dev/null; then
-            echo "✅ Application process is running (PID: $APP_PID)"
-          else
-            echo "❌ Application process died"
-            echo "📋 Recent logs:"
-            tail -20 app.log || echo "No logs found"
-            exit 1
+          # 3. BACKUP CURRENT VERSION (if exists)
+          if [ -d "current" ]; then
+            echo "💾 Backing up current version..."
+            rm -rf backup 2>/dev/null || true
+            mv current backup 2>/dev/null || true
           fi
           
-          # Quick endpoint test
-          echo "🏥 Testing application..."
-          for i in {1..6}; do
-            if curl -s --connect-timeout 5 http://localhost:3001/ > /dev/null; then
-              echo "✅ Application is responding"
-              break
+          # 4. CREATE NEW DEPLOYMENT DIRECTORY
+          mkdir -p current
+          cd current
+          
+    - name: 📤 Transfer build artifacts
+      uses: appleboy/scp-action@v0.1.7
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        source: "deployment.tar.gz"
+        target: "/var/www/toeicai/ToeicBoost_BE/current/"
+        
+    - name: 🔧 Extract and setup application
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 15m
+        sync: true
+        script: |
+          echo "🔧 EXTRACTING AND SETTING UP APPLICATION..."
+          
+          cd /var/www/toeicai/ToeicBoost_BE/current
+          
+          # Extract deployment package
+          echo "📦 Extracting deployment package..."
+          tar -xzf deployment.tar.gz
+          rm deployment.tar.gz
+          
+          # Show build info
+          echo "📋 Build Information:"
+          cat build-info.txt 2>/dev/null || echo "No build info available"
+          
+          # Install production dependencies only
+          echo "📦 Installing production dependencies..."
+          npm ci --only=production
+          
+          # Verify build
+          if [ ! -f "dist/main.js" ]; then
+            echo "❌ Build verification failed - main.js not found"
+            ls -la dist/ 2>/dev/null || echo "dist directory not found"
+            exit 1
+          fi
+          echo "✅ Build verification successful"
+          
+          # Copy environment file if exists in backup
+          if [ -f "../backup/.env" ]; then
+            echo "📋 Copying environment file from backup..."
+            cp ../backup/.env .env
+          elif [ ! -f ".env" ]; then
+            echo "⚠️ No .env file found - creating basic one..."
+            cat > .env << 'EOF'
+          NODE_ENV=production
+          PORT=3001
+          EOF
+          fi
+          
+          # Start application
+          echo "🚀 Starting application..."
+          export NODE_ENV=production
+          nohup npm run start:prod > app.log 2>&1 &
+          APP_PID=$!
+          echo $APP_PID > app.pid
+          echo "📝 Application started with PID: $APP_PID"
+          
+          # Monitor startup
+          echo "⏳ Monitoring startup for 30 seconds..."
+          for i in {1..30}; do
+            if kill -0 $APP_PID 2>/dev/null; then
+              echo "⏳ Process running... ($i/30)"
+              sleep 1
             else
-              echo "⏳ Waiting for app to start... ($i/6)"
-              sleep 5
-            fi
-            
-            if [ $i -eq 6 ]; then
-              echo "❌ Application not responding after 30 seconds"
-              echo "📋 Recent logs:"
-              tail -20 app.log || echo "No logs found"
+              echo "❌ Process died at second $i"
+              echo "📋 Application logs:"
+              tail -30 app.log
+              
+              # Rollback to backup if available
+              if [ -d "../backup" ]; then
+                echo "🔄 Rolling back to previous version..."
+                cd ..
+                rm -rf current
+                mv backup current
+                cd current
+                nohup npm run start:prod > app.log 2>&1 &
+                echo $! > app.pid
+                echo "✅ Rollback completed"
+              fi
               exit 1
             fi
           done
           
-          echo "🎉 Deployment completed successfully!"
+          # Final health check
+          echo "🏥 Final health check..."
+          
+          # Check port binding
+          if sudo lsof -i:3001 >/dev/null 2>&1; then
+            echo "✅ Port 3001 is bound"
+          else
+            echo "❌ Port 3001 not bound"
+            echo "📋 Application logs:"
+            tail -30 app.log
+            exit 1
+          fi
+          
+          # Test HTTP endpoint
+          for i in {1..10}; do
+            if curl -s --connect-timeout 3 --max-time 5 http://localhost:3001/ >/dev/null 2>&1; then
+              echo "✅ HTTP endpoint responding"
+              echo "🎉 DEPLOYMENT SUCCESSFUL!"
+              echo "📊 Final status:"
+              echo "  - Process PID: $APP_PID"
+              echo "  - Port: 3001 ✅"
+              echo "  - HTTP: ✅"
+              
+              # Clean up old backup
+              rm -rf ../backup 2>/dev/null || true
+              
+              exit 0
+            else
+              echo "⏳ Testing HTTP... ($i/10)"
+              sleep 2
+            fi
+          done
+          
+          echo "⚠️ HTTP endpoint not responding, but process is running"
+          echo "📋 Recent logs:"
+          tail -20 app.log
           
     - name: ✅ Success notification
       if: success()
       run: echo "🎉 Deployment completed successfully!"
+      
+    - name: ❌ Failure notification
+      if: failure()
+      run: echo "❌ Deployment failed - check logs above"
