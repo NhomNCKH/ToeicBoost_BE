@@ -1,0 +1,167 @@
+name: Fixed Deploy
+
+on:
+  workflow_dispatch: # Manual trigger only
+
+jobs:
+  deploy:
+    name: Fixed Deploy
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      
+    - name: 🔧 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        
+    - name: 📦 Install dependencies
+      run: npm ci
+      
+    - name: 🧪 Run tests
+      run: npm test
+      
+    - name: 🏗️ Build project
+      run: npm run build
+      
+    - name: 🚀 Deploy with Fixed Health Check
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 30m
+        debug: true
+        script: |
+          set -e
+          echo "🚀 Starting fixed deployment at $(date)..."
+          
+          # Setup project directory
+          echo "📁 Setting up project directory..."
+          sudo mkdir -p /var/www/toeicai || mkdir -p /var/www/toeicai
+          sudo chown -R $USER:$USER /var/www/toeicai 2>/dev/null || chown -R $USER:$USER /var/www/toeicai 2>/dev/null || echo "Chown failed, continuing..."
+          cd /var/www/toeicai
+          
+          # Clone or update project
+          if [ -d "ToeicBoost_BE" ]; then
+            echo "Project exists, updating..."
+            cd ToeicBoost_BE
+            git remote set-url origin https://github.com/NhomNCKH/ToeicBoost_BE.git
+            git pull origin main || echo "Git pull failed, continuing..."
+          else
+            echo "Cloning project..."
+            git clone https://github.com/NhomNCKH/ToeicBoost_BE.git
+            cd ToeicBoost_BE
+          fi
+          
+          # Stop existing processes
+          echo "🔄 Stopping existing processes..."
+          pkill -f "node.*dist/main" 2>/dev/null || echo "No node process to kill"
+          pkill -f "npm.*start:prod" 2>/dev/null || echo "No npm process to kill"
+          sleep 3
+          
+          # Create .env file
+          echo "🔧 Creating .env file..."
+          cat > .env << 'EOF'
+NODE_ENV=production
+APP_PORT=3001
+APP_NAME=toeic-ai-api
+API_PREFIX=api/v1
+
+# Minimal config for testing
+DB_HOST=localhost
+DB_PORT=5432
+DB_USERNAME=postgres
+DB_PASSWORD=password
+DB_DATABASE=toeicai
+DB_SYNCHRONIZE=false
+DB_LOGGING=false
+DB_SSL=false
+
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+REDIS_DB=0
+
+JWT_ACCESS_SECRET=test-access-secret
+JWT_ACCESS_EXPIRATION=15m
+JWT_REFRESH_SECRET=test-refresh-secret
+JWT_REFRESH_EXPIRATION=7d
+EOF
+          
+          # Install dependencies
+          echo "📦 Installing dependencies..."
+          npm install --production=false
+          
+          # Build project
+          echo "🏗️ Building project..."
+          npm run build
+          
+          # Start application
+          echo "🚀 Starting application..."
+          nohup npm run start:prod > app.log 2>&1 &
+          APP_PID=$!
+          echo "Application started with PID: $APP_PID"
+          
+          # Extended health check with detailed logging
+          echo "⏳ Extended health check (2 minutes)..."
+          
+          for i in {1..24}; do  # 24 attempts * 5 seconds = 2 minutes
+            echo "Health check attempt $i/24 at $(date)"
+            
+            # Check if process is still running
+            if ! kill -0 $APP_PID 2>/dev/null; then
+              echo "❌ Process $APP_PID has died"
+              echo "Recent logs:"
+              tail -30 app.log 2>/dev/null || echo "No logs available"
+              exit 1
+            fi
+            
+            # Check if port is listening
+            if netstat -tlnp 2>/dev/null | grep -q ":3001 "; then
+              echo "✅ Port 3001 is listening"
+              
+              # Try to connect
+              if curl -s --connect-timeout 10 --max-time 10 http://localhost:3001/ >/dev/null 2>&1; then
+                echo "✅ Application is responding on port 3001!"
+                break
+              else
+                echo "⏳ Port listening but app not responding yet..."
+              fi
+            else
+              echo "⏳ Port 3001 not listening yet..."
+            fi
+            
+            # Show recent logs every 5 attempts
+            if [ $((i % 5)) -eq 0 ]; then
+              echo "Recent logs (last 10 lines):"
+              tail -10 app.log 2>/dev/null || echo "No logs available"
+            fi
+            
+            sleep 5
+            
+            # Final attempt
+            if [ $i -eq 24 ]; then
+              echo "❌ Application failed to respond after 2 minutes"
+              echo "Final diagnostics:"
+              echo "Process status:"
+              ps aux | grep -E "(node|npm)" | grep -v grep || echo "No node/npm processes"
+              echo "Port status:"
+              netstat -tlnp | grep :3001 || echo "Port 3001 not listening"
+              echo "Full logs:"
+              cat app.log 2>/dev/null || echo "No logs available"
+              exit 1
+            fi
+          done
+          
+          echo "🎉 Deployment completed successfully at $(date)!"
+          echo "✅ Application is running on port 3001"
+          echo "✅ Process ID: $APP_PID"
+          
+          # Final verification
+          echo "Final verification:"
+          curl -s http://localhost:3001/ | head -5 || echo "Could not fetch response"

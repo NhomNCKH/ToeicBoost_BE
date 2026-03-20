@@ -1,0 +1,89 @@
+name: Check Dependencies
+
+on:
+  workflow_dispatch: # Manual trigger only
+
+jobs:
+  check:
+    name: Check Dependencies
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 🔍 Check System Dependencies
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 5m
+        debug: true
+        script: |
+          echo "🔍 Checking system dependencies..."
+          
+          echo "=== NODE.JS CHECK ==="
+          node --version || echo "❌ Node.js not found"
+          npm --version || echo "❌ npm not found"
+          
+          echo "=== DATABASE CHECK ==="
+          # Check if PostgreSQL is installed
+          which psql && echo "✅ PostgreSQL client found" || echo "❌ PostgreSQL client not found"
+          
+          # Try to connect to database
+          echo "Testing database connection..."
+          PGPASSWORD=StrongPassword123! psql -h localhost -p 5432 -U toeicai_user -d toeicai -c "SELECT version();" 2>/dev/null && echo "✅ Database connection works" || echo "❌ Database connection failed"
+          
+          echo "=== REDIS CHECK ==="
+          # Check if Redis is installed
+          which redis-cli && echo "✅ Redis client found" || echo "❌ Redis client not found"
+          
+          # Try to connect to Redis
+          echo "Testing Redis connection..."
+          redis-cli ping 2>/dev/null && echo "✅ Redis connection works" || echo "❌ Redis connection failed"
+          
+          echo "=== PORT CHECK ==="
+          echo "Checking required ports..."
+          netstat -tlnp | grep :5432 && echo "✅ PostgreSQL port 5432 listening" || echo "❌ PostgreSQL port 5432 not listening"
+          netstat -tlnp | grep :6379 && echo "✅ Redis port 6379 listening" || echo "❌ Redis port 6379 not listening"
+          netstat -tlnp | grep :3001 && echo "⚠️ App port 3001 already in use" || echo "✅ App port 3001 available"
+          
+          echo "=== SYSTEM RESOURCES ==="
+          echo "Memory:"
+          free -h
+          echo "Disk space:"
+          df -h | head -5
+          echo "CPU info:"
+          nproc
+          
+          echo "=== INSTALL MISSING DEPENDENCIES ==="
+          
+          # Install PostgreSQL if missing
+          if ! which psql >/dev/null 2>&1; then
+            echo "Installing PostgreSQL..."
+            sudo apt update
+            sudo apt install -y postgresql postgresql-contrib
+            sudo systemctl start postgresql
+            sudo systemctl enable postgresql
+            
+            # Create user and database
+            sudo -u postgres createuser -s toeicai_user 2>/dev/null || echo "User already exists"
+            sudo -u postgres psql -c "ALTER USER toeicai_user PASSWORD 'StrongPassword123!';" 2>/dev/null || echo "Password set failed"
+            sudo -u postgres createdb -O toeicai_user toeicai 2>/dev/null || echo "Database already exists"
+          fi
+          
+          # Install Redis if missing
+          if ! which redis-cli >/dev/null 2>&1; then
+            echo "Installing Redis..."
+            sudo apt update
+            sudo apt install -y redis-server
+            sudo systemctl start redis
+            sudo systemctl enable redis
+          fi
+          
+          echo "=== FINAL CHECK ==="
+          echo "PostgreSQL status:"
+          sudo systemctl status postgresql --no-pager || echo "PostgreSQL status unknown"
+          echo "Redis status:"
+          sudo systemctl status redis --no-pager || echo "Redis status unknown"
+          
+          echo "✅ Dependencies check completed!"
