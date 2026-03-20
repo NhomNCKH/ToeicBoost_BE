@@ -79,38 +79,47 @@ jobs:
         key: ${{ secrets.SERVER_SSH_KEY }}
         port: 22
         command_timeout: 10m
-        timeout: 60s
         sync: true
         script: |
           echo "🚀 DEPLOYMENT STARTING..."
           
           PROJECT_DIR="/var/www/toeicai/ToeicBoost_BE"
           
-          # 1. GENTLE CLEANUP (không dùng -9)
-          echo "🧹 Gently stopping existing processes..."
-          pkill -f "dist/main.js" 2>/dev/null || true
-          pkill -f "start:prod" 2>/dev/null || true
+          # 1. SAFE CLEANUP - chỉ kill bằng PID
+          echo "🧹 Safely stopping existing processes..."
           
-          # Wait for graceful shutdown
-          sleep 3
+          if [ -f app.pid ]; then
+            OLD_PID=$(cat app.pid)
+            echo "Found existing PID: $OLD_PID"
+            
+            if kill -0 $OLD_PID 2>/dev/null; then
+              echo "Stopping process $OLD_PID..."
+              kill $OLD_PID 2>/dev/null || true
+              sleep 5
+              
+              if kill -0 $OLD_PID 2>/dev/null; then
+                echo "Force killing process $OLD_PID..."
+                kill -9 $OLD_PID 2>/dev/null || true
+              fi
+            fi
+            
+            rm -f app.pid
+          else
+            echo "No PID file found"
+          fi
           
-          # Check and kill port 3001 safely
+          # 2. Safe port cleanup only
           echo "🔌 Checking port 3001..."
           PORT_PIDS=$(lsof -ti:3001 2>/dev/null || true)
           if [ -n "$PORT_PIDS" ]; then
             echo "Found processes on port 3001: $PORT_PIDS"
             echo "$PORT_PIDS" | xargs -r kill 2>/dev/null || true
             sleep 2
-            
-            # Force kill only if still running
-            PORT_PIDS=$(lsof -ti:3001 2>/dev/null || true)
-            if [ -n "$PORT_PIDS" ]; then
-              echo "Force killing remaining processes on port 3001..."
-              echo "$PORT_PIDS" | xargs -r kill -9 2>/dev/null || true
-            fi
+          else
+            echo "Port 3001 is free"
           fi
           
-          echo "✅ Cleanup completed safely"
+          echo "✅ Safe cleanup completed"
           
           # 2. PREPARE DEPLOYMENT DIRECTORY
           echo "📁 Preparing deployment directory..."
@@ -147,7 +156,6 @@ jobs:
         key: ${{ secrets.SERVER_SSH_KEY }}
         port: 22
         command_timeout: 10m
-        timeout: 60s
         sync: true
         script: |
           echo "🔧 EXTRACTING AND SETTING UP APPLICATION..."

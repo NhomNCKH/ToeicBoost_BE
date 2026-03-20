@@ -34,28 +34,26 @@ jobs:
           
           echo "📍 Working directory: $(pwd)"
           
-          # Kill existing processes SAFELY
+          # Kill existing processes SAFELY - chỉ dùng PID
           echo "🧹 Stopping existing processes safely..."
           if [ -f app.pid ]; then
             OLD_PID=$(cat app.pid)
             echo "Found existing PID: $OLD_PID"
             if kill -0 $OLD_PID 2>/dev/null; then
               echo "Gracefully stopping process $OLD_PID..."
-              kill $OLD_PID
+              kill $OLD_PID 2>/dev/null || true
               sleep 5
               if kill -0 $OLD_PID 2>/dev/null; then
                 echo "Force killing process $OLD_PID..."
-                kill -9 $OLD_PID
+                kill -9 $OLD_PID 2>/dev/null || true
               fi
             fi
             rm -f app.pid
+          else
+            echo "No PID file found"
           fi
           
-          # Gentle cleanup of other processes
-          pkill -f "dist/main.js" 2>/dev/null || true
-          pkill -f "start:prod" 2>/dev/null || true
-          
-          # Safe port cleanup
+          # Safe port cleanup only
           PORT_PIDS=$(lsof -ti:3001 2>/dev/null || true)
           if [ -n "$PORT_PIDS" ]; then
             echo "Stopping processes on port 3001: $PORT_PIDS"
