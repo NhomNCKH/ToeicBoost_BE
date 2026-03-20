@@ -3,12 +3,16 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
+import { extname } from 'node:path';
+import type { Express } from 'express';
+import { v4 as uuidv4 } from 'uuid';
 import { Repository } from 'typeorm';
 import { APP_CONSTANTS } from '../../common/constants/app.constant';
 import {
@@ -16,6 +20,7 @@ import {
   ITokenPair,
 } from '../../common/interfaces/jwt-payload.interface';
 import { HashHelper } from '../../helpers/hash.helper';
+import { S3StorageService } from '../s3/s3-storage.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -32,6 +37,7 @@ export class SecurityService {
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly s3StorageService: S3StorageService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -186,6 +192,105 @@ export class SecurityService {
       message: 'Current user profile',
       data: payload,
     };
+  }
+
+  async uploadAvatar(userId: string, file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('Missing file');
+    }
+
+    if (!file.mimetype?.startsWith('image/')) {
+      throw new BadRequestException('Invalid file type. Expect image/*');
+    }
+
+    if (!file.buffer || file.buffer.length === 0) {
+      throw new BadRequestException('Empty file');
+    }
+
+    const extension =
+      this.getExtensionFromMime(file.mimetype) ?? extname(file.originalname);
+
+    if (!extension) {
+      throw new BadRequestException('Cannot determine file extension');
+    }
+
+    const safeExt = extension.startsWith('.')
+      ? extension.toLowerCase()
+      : `.${extension.toLowerCase()}`;
+    const objectKey = `avatars/${userId}/${uuidv4()}${safeExt}`;
+
+    await this.s3StorageService.uploadObject({
+      objectKey,
+      body: file.buffer,
+      contentType: file.mimetype,
+    });
+
+    const avatarUrl = this.s3StorageService.buildPublicUrl(objectKey);
+
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    user.avatarUrl = avatarUrl;
+    await this.userRepository.save(user);
+
+    return {
+      avatarUrl,
+      s3Key: objectKey,
+    };
+  }
+
+  async getAvatar(userId: string) {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      select: { id: true, avatarUrl: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return { avatarUrl: user.avatarUrl };
+  }
+
+  async attachAvatarFromS3Key(userId: string, s3Key: string) {
+    if (!s3Key) {
+      throw new BadRequestException('Missing s3Key');
+    }
+
+    const expectedPrefix = `avatars/${userId}/`;
+    if (!s3Key.startsWith(expectedPrefix)) {
+      throw new BadRequestException(
+        'Invalid s3Key. It must be in avatars/<userId>/ folder.',
+      );
+    }
+
+    const avatarUrl = this.s3StorageService.buildPublicUrl(s3Key);
+
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    user.avatarUrl = avatarUrl;
+    await this.userRepository.save(user);
+
+    return {
+      avatarUrl,
+      s3Key,
+    };
+  }
+
+  private getExtensionFromMime(mime: string): string | null {
+    const normalized = mime.toLowerCase();
+    if (normalized === 'image/jpeg') return '.jpg';
+    if (normalized === 'image/png') return '.png';
+    if (normalized === 'image/gif') return '.gif';
+    if (normalized === 'image/webp') return '.webp';
+    if (normalized === 'image/bmp') return '.bmp';
+    if (normalized === 'image/svg+xml') return '.svg';
+    return null;
   }
 
   private async handleFailedLogin(user: User) {
