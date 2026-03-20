@@ -14,6 +14,7 @@ import { AuthInputMiddleware } from './middlewares/auth-input.middleware';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { SecurityController } from './security.controller';
 import { SecurityService } from './security.service';
+import { S3StorageModule } from '../s3/s3-storage.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { SecurityService } from './security.service';
       }),
     }),
     TypeOrmModule.forFeature([User, RefreshToken]),
+    S3StorageModule,
   ],
   controllers: [SecurityController],
   providers: [SecurityService, JwtStrategy],
