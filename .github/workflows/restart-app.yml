@@ -34,15 +34,15 @@ jobs:
           
           echo "📍 Working directory: $(pwd)"
           
-          # Kill existing processes
-          echo "🧹 Stopping existing processes..."
+          # Kill existing processes SAFELY
+          echo "🧹 Stopping existing processes safely..."
           if [ -f app.pid ]; then
             OLD_PID=$(cat app.pid)
             echo "Found existing PID: $OLD_PID"
             if kill -0 $OLD_PID 2>/dev/null; then
-              echo "Stopping process $OLD_PID..."
+              echo "Gracefully stopping process $OLD_PID..."
               kill $OLD_PID
-              sleep 3
+              sleep 5
               if kill -0 $OLD_PID 2>/dev/null; then
                 echo "Force killing process $OLD_PID..."
                 kill -9 $OLD_PID
@@ -51,19 +51,27 @@ jobs:
             rm -f app.pid
           fi
           
-          # Force kill any remaining processes
-          sudo pkill -9 -f "node.*dist/main" 2>/dev/null || true
-          sudo pkill -9 -f "npm.*start:prod" 2>/dev/null || true
-          sudo fuser -k 3001/tcp 2>/dev/null || true
-          sleep 2
+          # Gentle cleanup of other processes
+          pkill -f "dist/main.js" 2>/dev/null || true
+          pkill -f "start:prod" 2>/dev/null || true
+          
+          # Safe port cleanup
+          PORT_PIDS=$(lsof -ti:3001 2>/dev/null || true)
+          if [ -n "$PORT_PIDS" ]; then
+            echo "Stopping processes on port 3001: $PORT_PIDS"
+            echo "$PORT_PIDS" | xargs -r kill 2>/dev/null || true
+            sleep 2
+          fi
           
           # Verify cleanup
-          if sudo lsof -i:3001 2>/dev/null; then
-            echo "⚠️ Port 3001 still in use:"
-            sudo lsof -i:3001
-            echo "Force killing port 3001..."
-            sudo fuser -k 3001/tcp 2>/dev/null || true
+          PORT_PIDS=$(lsof -ti:3001 2>/dev/null || true)
+          if [ -n "$PORT_PIDS" ]; then
+            echo "⚠️ Port 3001 still in use by: $PORT_PIDS"
+            echo "Force cleaning port 3001..."
+            echo "$PORT_PIDS" | xargs -r kill -9 2>/dev/null || true
             sleep 2
+          else
+            echo "✅ Port 3001 is free"
           fi
           
           # Check if we have the built application
