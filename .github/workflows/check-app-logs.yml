@@ -1,0 +1,118 @@
+name: Check App Logs
+
+on:
+  workflow_dispatch: # Manual trigger only
+
+jobs:
+  check:
+    name: Check Application Logs
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 🔍 Check Current App Status and Logs
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 5m
+        debug: true
+        script: |
+          echo "🔍 Checking current application status..."
+          
+          cd /var/www/toeicai/ToeicBoost_BE || {
+            echo "❌ Project directory not found"
+            exit 1
+          }
+          
+          echo "=== CURRENT DIRECTORY ==="
+          pwd
+          ls -la
+          
+          echo "=== PROCESS STATUS ==="
+          echo "Node processes:"
+          ps aux | grep -E "(node|npm)" | grep -v grep || echo "No node/npm processes running"
+          
+          echo "Port 3001 status:"
+          netstat -tlnp | grep :3001 || echo "Port 3001 not in use"
+          
+          echo "=== APPLICATION LOGS ==="
+          if [ -f "app.log" ]; then
+            echo "✅ app.log exists"
+            echo "File size: $(wc -l < app.log) lines"
+            echo "Last modified: $(stat -c %y app.log)"
+            echo ""
+            echo "=== FULL APP LOGS ==="
+            cat app.log
+            echo ""
+            echo "=== ERROR ANALYSIS ==="
+            if grep -i "error\|exception\|failed\|cannot\|unable" app.log >/dev/null 2>&1; then
+              echo "❌ Errors found in logs:"
+              grep -i "error\|exception\|failed\|cannot\|unable" app.log
+            else
+              echo "✅ No obvious errors in logs"
+            fi
+          else
+            echo "❌ app.log not found"
+          fi
+          
+          echo "=== OTHER LOG FILES ==="
+          find . -name "*.log" -type f 2>/dev/null | head -10 || echo "No other log files"
+          
+          echo "=== ENVIRONMENT CHECK ==="
+          if [ -f ".env" ]; then
+            echo "✅ .env file exists"
+            echo "Environment variables (keys only):"
+            grep -E "^[A-Z]" .env | cut -d'=' -f1 | head -15
+          else
+            echo "❌ .env file missing"
+          fi
+          
+          echo "=== PACKAGE.JSON CHECK ==="
+          if [ -f "package.json" ]; then
+            echo "✅ package.json exists"
+            echo "Start script:"
+            grep -A 1 '"start:prod"' package.json || echo "start:prod script not found"
+          fi
+          
+          echo "=== DIST CHECK ==="
+          if [ -d "dist" ]; then
+            echo "✅ dist directory exists"
+            echo "Main files:"
+            ls -la dist/ | head -10
+            
+            if [ -f "dist/main.js" ]; then
+              echo "✅ main.js exists"
+              echo "File size: $(wc -c < dist/main.js) bytes"
+            else
+              echo "❌ main.js missing"
+            fi
+          else
+            echo "❌ dist directory missing"
+          fi
+          
+          echo "=== MANUAL START TEST ==="
+          echo "Attempting manual start to see immediate errors..."
+          
+          # Kill any existing processes
+          pkill -f "node.*dist/main" 2>/dev/null || echo "No existing process"
+          sleep 2
+          
+          # Try direct node start with timeout
+          echo "Testing direct node start..."
+          timeout 15 node dist/main.js 2>&1 | tee manual-test.log || echo "Manual start completed/failed"
+          
+          echo "=== MANUAL START RESULTS ==="
+          if [ -f "manual-test.log" ]; then
+            echo "Manual start output:"
+            cat manual-test.log
+          fi
+          
+          echo "=== SYSTEM RESOURCES ==="
+          echo "Memory usage:"
+          free -h
+          echo "Disk usage:"
+          df -h | head -5
+          
+          echo "✅ Log check completed!"
