@@ -1,0 +1,219 @@
+name: Max Timeout Deploy
+
+on:
+  workflow_dispatch: # Manual trigger only
+
+jobs:
+  deploy:
+    name: Max Timeout Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 60  # GitHub Actions job timeout
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      
+    - name: 🔧 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        
+    - name: 📦 Install dependencies
+      run: npm ci
+      
+    - name: 🧪 Run tests
+      run: npm test
+      
+    - name: 🏗️ Build project
+      run: npm run build
+      
+    - name: 🚀 Deploy with Max Timeout
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 45m  # Maximum timeout
+        debug: true
+        script: |
+          set -e
+          echo "🚀 Starting deployment with max timeout..."
+          echo "Current time: $(date)"
+          echo "User: $(whoami)"
+          echo "Directory: $(pwd)"
+          
+          # Navigate to project directory with detailed logging
+          echo "📁 Setting up project directory..."
+          if [ ! -d "/var/www" ]; then
+            echo "Creating /var/www directory..."
+            sudo mkdir -p /var/www
+            sudo chown -R $USER:$USER /var/www
+          fi
+          
+          if [ ! -d "/var/www/toeicai" ]; then
+            echo "Creating /var/www/toeicai directory..."
+            mkdir -p /var/www/toeicai
+          fi
+          
+          cd /var/www/toeicai
+          echo "Current directory: $(pwd)"
+          
+          # Check if project exists
+          if [ ! -d "ToeicBoost_BE" ]; then
+            echo "📥 Project not found, cloning..."
+            
+            # Test GitHub SSH first
+            echo "Testing GitHub SSH connection..."
+            ssh -T git@github.com 2>&1 || echo "GitHub SSH test completed"
+            
+            # Clone project
+            echo "Cloning project..."
+            git clone git@github.com:NhomNCKH/ToeicBoost_BE.git || {
+              echo "SSH clone failed, trying HTTPS..."
+              git clone https://github.com/NhomNCKH/ToeicBoost_BE.git
+            }
+          else
+            echo "✅ Project exists, updating..."
+          fi
+          
+          cd ToeicBoost_BE
+          echo "Project directory: $(pwd)"
+          
+          # Kill existing processes with detailed logging
+          echo "🔄 Checking for existing processes..."
+          if pgrep -f "node.*dist/main" > /dev/null; then
+            echo "Found existing node processes, killing..."
+            pkill -f "node.*dist/main" || echo "Kill node process completed"
+          else
+            echo "No existing node processes found"
+          fi
+          
+          if pgrep -f "npm.*start:prod" > /dev/null; then
+            echo "Found existing npm processes, killing..."
+            pkill -f "npm.*start:prod" || echo "Kill npm process completed"
+          else
+            echo "No existing npm processes found"
+          fi
+          
+          echo "Waiting 3 seconds for processes to stop..."
+          sleep 3
+          
+          # Update code with detailed logging
+          echo "📥 Updating code..."
+          git remote set-url origin git@github.com:NhomNCKH/ToeicBoost_BE.git
+          echo "Git remote set to SSH"
+          
+          echo "Fetching latest code..."
+          git fetch origin main --depth=1 || {
+            echo "Git fetch failed, continuing with existing code..."
+          }
+          
+          echo "Resetting to latest code..."
+          git reset --hard origin/main || {
+            echo "Git reset failed, continuing with existing code..."
+          }
+          
+          echo "Current commit:"
+          git log --oneline -1 || echo "Git log failed"
+          
+          # Install dependencies with detailed logging
+          echo "📦 Installing dependencies..."
+          echo "Starting npm ci at: $(date)"
+          npm ci --production=false || {
+            echo "npm ci failed, trying npm install..."
+            npm install --production=false || {
+              echo "npm install also failed"
+              exit 1
+            }
+          }
+          echo "Dependencies installed at: $(date)"
+          
+          # Build project with detailed logging
+          echo "🏗️ Building project..."
+          echo "Starting build at: $(date)"
+          npm run build || {
+            echo "Build failed"
+            exit 1
+          }
+          echo "Build completed at: $(date)"
+          
+          # Create .env if not exists
+          if [ ! -f ".env" ]; then
+            echo "🔧 Creating .env file..."
+            cat > .env << 'EOF'
+NODE_ENV=production
+APP_PORT=3001
+APP_NAME=toeic-ai-api
+API_PREFIX=api/v1
+
+DB_HOST=localhost
+DB_PORT=5432
+DB_USERNAME=toeicai_user
+DB_PASSWORD=StrongPassword123!
+DB_DATABASE=toeicai
+DB_SYNCHRONIZE=false
+DB_LOGGING=false
+DB_SSL=false
+
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+REDIS_DB=0
+
+JWT_ACCESS_SECRET=prod-access-secret-$(date +%s)
+JWT_ACCESS_EXPIRATION=15m
+JWT_REFRESH_SECRET=prod-refresh-secret-$(date +%s)
+JWT_REFRESH_EXPIRATION=7d
+EOF
+            echo "✅ .env file created"
+          else
+            echo "✅ .env file already exists"
+          fi
+          
+          # Start application with detailed logging
+          echo "🚀 Starting application..."
+          echo "Starting app at: $(date)"
+          NODE_ENV=production nohup npm run start:prod > app.log 2>&1 &
+          APP_PID=$!
+          echo "Application started with PID: $APP_PID at $(date)"
+          
+          # Wait and check with detailed logging
+          echo "⏳ Waiting for application startup..."
+          for i in {1..30}; do
+            echo "Checking startup attempt $i/30 at $(date)"
+            sleep 2
+            
+            if kill -0 $APP_PID 2>/dev/null; then
+              echo "✅ Process $APP_PID is still running"
+            else
+              echo "❌ Process $APP_PID has died"
+              echo "Recent logs:"
+              tail -20 app.log 2>/dev/null || echo "No logs available"
+              exit 1
+            fi
+            
+            if curl -s --connect-timeout 5 http://localhost:3001/ >/dev/null 2>&1; then
+              echo "✅ Application is responding on port 3001"
+              break
+            else
+              echo "⏳ Application not responding yet ($i/30)"
+            fi
+            
+            if [ $i -eq 30 ]; then
+              echo "❌ Application failed to respond after 60 seconds"
+              echo "Final process check:"
+              ps aux | grep -E "(node|npm)" | grep -v grep || echo "No node/npm processes"
+              echo "Port check:"
+              netstat -tlnp | grep :3001 || echo "Port 3001 not listening"
+              echo "Recent logs:"
+              tail -30 app.log 2>/dev/null || echo "No logs available"
+              exit 1
+            fi
+          done
+          
+          echo "🎉 Deployment completed successfully at $(date)!"
+          echo "✅ Application is running and responding"
+          echo "✅ Process ID: $APP_PID"
+          echo "✅ Port 3001 is active"

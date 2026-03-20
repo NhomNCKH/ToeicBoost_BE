@@ -1,0 +1,168 @@
+name: Minimal Deploy
+
+on:
+  workflow_dispatch: # Manual trigger only
+
+jobs:
+  deploy:
+    name: Minimal Deploy
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 🔍 Step 1 - Test SSH Connection
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 2m
+        debug: true
+        script: |
+          echo "✅ SSH Connection successful!"
+          echo "User: $(whoami)"
+          echo "Date: $(date)"
+          
+    - name: 🔍 Step 2 - Check System
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 2m
+        debug: true
+        script: |
+          echo "Checking system..."
+          which node || echo "Node.js not found"
+          which npm || echo "npm not found"
+          which git || echo "Git not found"
+          df -h | head -3
+          
+    - name: 🔍 Step 3 - Check Project Directory
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 2m
+        debug: true
+        script: |
+          echo "Checking project directory..."
+          if [ -d "/var/www/toeicai/ToeicBoost_BE" ]; then
+            echo "✅ Project exists"
+            cd /var/www/toeicai/ToeicBoost_BE
+            ls -la | head -5
+          else
+            echo "❌ Project not found"
+            echo "Creating directory..."
+            mkdir -p /var/www/toeicai
+            echo "Directory created"
+          fi
+          
+    - name: 🔍 Step 4 - Simple Git Operation
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 5m
+        debug: true
+        script: |
+          echo "Testing git operations..."
+          cd /var/www/toeicai
+          
+          if [ ! -d "ToeicBoost_BE" ]; then
+            echo "Cloning project..."
+            git clone https://github.com/NhomNCKH/ToeicBoost_BE.git || {
+              echo "❌ Git clone failed"
+              exit 1
+            }
+          fi
+          
+          cd ToeicBoost_BE
+          echo "✅ Git operations successful"
+          
+    - name: 🔍 Step 5 - Install Dependencies
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 10m
+        debug: true
+        script: |
+          echo "Installing dependencies..."
+          cd /var/www/toeicai/ToeicBoost_BE
+          
+          echo "Running npm install..."
+          npm install --production || {
+            echo "❌ npm install failed"
+            exit 1
+          }
+          
+          echo "✅ Dependencies installed"
+          
+    - name: 🔍 Step 6 - Build Project
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 10m
+        debug: true
+        script: |
+          echo "Building project..."
+          cd /var/www/toeicai/ToeicBoost_BE
+          
+          npm run build || {
+            echo "❌ Build failed"
+            exit 1
+          }
+          
+          echo "✅ Build successful"
+          
+    - name: 🔍 Step 7 - Start Application
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 5m
+        debug: true
+        script: |
+          echo "Starting application..."
+          cd /var/www/toeicai/ToeicBoost_BE
+          
+          # Kill existing process
+          pkill -f "node.*dist/main" 2>/dev/null || echo "No existing process"
+          
+          # Create basic .env if not exists
+          if [ ! -f ".env" ]; then
+            echo "Creating .env..."
+            cat > .env << 'EOF'
+          NODE_ENV=production
+          APP_PORT=3001
+          EOF
+          fi
+          
+          # Start app
+          echo "Starting app..."
+          nohup npm run start:prod > app.log 2>&1 &
+          
+          sleep 5
+          
+          if pgrep -f "node.*dist/main" > /dev/null; then
+            echo "✅ Application started successfully"
+          else
+            echo "❌ Application failed to start"
+            tail -10 app.log 2>/dev/null || echo "No logs"
+            exit 1
+          fi
+          
+          echo "🎉 Deployment completed!"
