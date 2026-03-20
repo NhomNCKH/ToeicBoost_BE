@@ -2,6 +2,8 @@ name: Test SSH Connection
 
 on:
   workflow_dispatch: # Manual trigger only
+  push:
+    branches: [ main ]
 
 jobs:
   test-ssh:
@@ -16,10 +18,11 @@ jobs:
         username: ${{ secrets.SERVER_USER }}
         key: ${{ secrets.SERVER_SSH_KEY }}
         port: 22
+        debug: true
         script: |
           echo "🎉 SSH Connection successful!"
           echo "Current user: $(whoami)"
           echo "Current directory: $(pwd)"
           echo "Server time: $(date)"
-          echo "SSH key fingerprint check:"
-          ssh-keygen -lf ~/.ssh/authorized_keys | grep actions
+          echo "Authorized keys:"
+          ssh-keygen -lf ~/.ssh/authorized_keys
