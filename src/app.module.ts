@@ -14,6 +14,8 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { SecurityModule } from './modules/security/security.module';
 import { AppController } from './app.controller';
+import { S3StorageModule } from './modules/s3/s3-storage.module';
+import { MediaModule } from '@modules/media/media.module';
 
 @Module({
   imports: [
@@ -57,7 +59,11 @@ import { AppController } from './app.controller';
       ],
     }),
 
+    S3StorageModule,
+
     SecurityModule,
+
+    MediaModule,
   ],
   controllers: [AppController],
   providers: [
