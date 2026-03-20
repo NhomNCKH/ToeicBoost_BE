@@ -36,63 +36,101 @@ jobs:
         username: ${{ secrets.SERVER_USER }}
         key: ${{ secrets.SERVER_SSH_KEY }}
         port: 22
-        command_timeout: 5m
+        command_timeout: 15m
         script: |
+          set -e  # Exit on any error
           echo "🚀 Starting deployment..."
           
           # Navigate to project directory
-          cd /var/www/toeicai/ToeicBoost_BE || exit 1
+          echo "📁 Navigating to project directory..."
+          cd /var/www/toeicai/ToeicBoost_BE || {
+            echo "❌ Failed to navigate to project directory"
+            echo "Creating project directory..."
+            mkdir -p /var/www/toeicai
+            cd /var/www/toeicai
+            git clone git@github.com:NhomNCKH/ToeicBoost_BE.git || {
+              echo "❌ Failed to clone repository"
+              exit 1
+            }
+            cd ToeicBoost_BE
+          }
           
-          # Kill existing processes
-          sudo kill -9 $(sudo lsof -t -i:3001) 2>/dev/null || true
-          pkill -f "node.*dist/main.js" || true
-          pkill -f "npm.*start:prod" || true
-          sleep 5
-          
-          # Check current git status
-          echo "Current git status:"
-          git status
-          git log --oneline -3
+          # Kill existing processes quickly
+          echo "🔄 Stopping existing processes..."
+          pkill -f "node.*dist/main" 2>/dev/null || echo "No node process found"
+          pkill -f "npm.*start:prod" 2>/dev/null || echo "No npm process found"
+          sleep 2
           
           # Ensure we're using SSH for git operations
+          echo "🔧 Setting up git remote..."
           git remote set-url origin git@github.com:NhomNCKH/ToeicBoost_BE.git
           
-          # Test SSH connection
-          ssh -T git@github.com || echo "SSH test completed"
+          # Force update to latest code (faster method)
+          echo "📥 Fetching latest code..."
+          git fetch origin main --depth=1 || {
+            echo "❌ Failed to fetch from origin"
+            exit 1
+          }
           
-          # Force update to latest code
-          git fetch origin main
-          git reset --hard origin/main
-          git clean -fd
+          git reset --hard origin/main || {
+            echo "❌ Failed to reset to origin/main"
+            exit 1
+          }
           
-          echo "After git pull:"
-          git log --oneline -3
-          
-          # Install dependencies
-          npm install --production=false
+          # Install dependencies with cache
+          echo "📦 Installing dependencies..."
+          npm ci --production=false || {
+            echo "❌ Failed to install dependencies"
+            exit 1
+          }
           
           # Build project
-          npm run build
+          echo "🏗️ Building project..."
+          npm run build || {
+            echo "❌ Failed to build project"
+            exit 1
+          }
           
-          # Start application
-          NODE_ENV=development nohup npm run start:prod > app.log 2>&1 &
+          # Start application in background
+          echo "🚀 Starting application..."
+          NODE_ENV=production nohup npm run start:prod > app.log 2>&1 &
+          APP_PID=$!
+          echo "Application started with PID: $APP_PID"
           
-          # Wait for startup
-          sleep 15
+          # Quick health check
+          echo "⏳ Waiting for application startup..."
+          sleep 10
           
-          # Health check with detailed output
-          echo "Testing health endpoints:"
-          curl -s http://localhost:3001/ || echo "Root endpoint failed"
-          curl -s http://localhost:3001/health || echo "Health endpoint failed"
-          
-          # Check if app is running
-          if curl -s http://localhost:3001/ | grep -q "TOEIC AI API is running"; then
-            echo "✅ Deployment successful - API is responding"
+          # Check if process is still running
+          if kill -0 $APP_PID 2>/dev/null; then
+            echo "✅ Application process is running (PID: $APP_PID)"
           else
-            echo "❌ Health check failed - checking logs:"
-            tail -20 app.log
+            echo "❌ Application process died"
+            echo "📋 Recent logs:"
+            tail -20 app.log || echo "No logs found"
             exit 1
           fi
+          
+          # Quick endpoint test
+          echo "🏥 Testing application..."
+          for i in {1..6}; do
+            if curl -s --connect-timeout 5 http://localhost:3001/ > /dev/null; then
+              echo "✅ Application is responding"
+              break
+            else
+              echo "⏳ Waiting for app to start... ($i/6)"
+              sleep 5
+            fi
+            
+            if [ $i -eq 6 ]; then
+              echo "❌ Application not responding after 30 seconds"
+              echo "📋 Recent logs:"
+              tail -20 app.log || echo "No logs found"
+              exit 1
+            fi
+          done
+          
+          echo "🎉 Deployment completed successfully!"
           
     - name: ✅ Success notification
       if: success()
