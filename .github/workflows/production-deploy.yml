@@ -101,6 +101,16 @@ jobs:
             exit 1
           fi
           
+          # Check if docker-compose.production.yml is valid
+          if [ ! -s "docker-compose.production.yml" ]; then
+            log "❌ docker-compose.production.yml is empty"
+            ls -la docker-compose.production.yml
+            exit 1
+          fi
+          
+          log "✅ Verifying docker-compose.production.yml content..."
+          head -5 docker-compose.production.yml
+          
           if [ ! -f ".env.production" ]; then
             log "❌ .env.production not found"
             ls -la
@@ -110,6 +120,18 @@ jobs:
           # Create .env
           cp .env.production .env
           log "✅ Environment file created"
+          
+          # Validate docker-compose file
+          log "Validating docker-compose.production.yml..."
+          if ! $DOCKER_COMPOSE -f docker-compose.production.yml config >/dev/null 2>&1; then
+            log "❌ docker-compose.production.yml is invalid"
+            log "File content:"
+            cat docker-compose.production.yml
+            log "Validation error:"
+            $DOCKER_COMPOSE -f docker-compose.production.yml config 2>&1 || true
+            exit 1
+          fi
+          log "✅ docker-compose.production.yml is valid"
           
           # Build and start services
           log "Building and starting services with Docker Compose..."
