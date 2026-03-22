@@ -1,0 +1,207 @@
+name: Production Deploy with Docker Compose
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to Production Server
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+    - name: 📥 Checkout Repository
+      uses: actions/checkout@v4
+      
+    - name: 📤 Upload Source Code
+      uses: appleboy/scp-action@v0.1.7
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        source: "."
+        target: "/tmp/app-${{ github.sha }}"
+        rm: true
+        
+    - name: 🚀 Deploy with Docker Compose
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 20m
+        sync: true
+        script: |
+          #!/bin/bash
+          
+          echo "=== DOCKER COMPOSE DEPLOYMENT STARTED ==="
+          
+          # Configuration
+          APP_DIR="/var/www/toeicai/ToeicBoost_BE"
+          SOURCE_DIR="/tmp/app-${{ github.sha }}"
+          
+          # Function to log with timestamp
+          log() {
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+          }
+          
+          # Check Docker and Docker Compose
+          log "Checking Docker installation..."
+          docker --version || (echo "❌ Docker not installed" && exit 1)
+          
+          if command -v docker-compose &> /dev/null; then
+            DOCKER_COMPOSE="docker-compose"
+            log "Using docker-compose: $(docker-compose --version)"
+          elif docker compose version &> /dev/null; then
+            DOCKER_COMPOSE="docker compose"
+            log "Using docker compose: $(docker compose version)"
+          else
+            log "❌ Docker Compose not installed"
+            exit 1
+          fi
+          
+          # Stop existing services
+          log "Stopping existing services..."
+          cd "$APP_DIR" 2>/dev/null || true
+          if [ -f "docker-compose.production.yml" ]; then
+            $DOCKER_COMPOSE -f docker-compose.production.yml down --timeout 30 || true
+          fi
+          
+          # Kill any process on port 3001
+          if lsof -ti:3001 >/dev/null 2>&1; then
+            log "Killing processes on port 3001"
+            lsof -ti:3001 | xargs kill -9 2>/dev/null || true
+            sleep 2
+          fi
+          
+          # Backup and setup new code
+          log "Setting up new code..."
+          if [ -d "$APP_DIR" ]; then
+            rm -rf "$APP_DIR.backup"
+            cp -r "$APP_DIR" "$APP_DIR.backup"
+          fi
+          
+          mkdir -p "$APP_DIR"
+          chown -R $USER:$USER /var/www/toeicai
+          rm -rf "$APP_DIR"/*
+          cp -r "$SOURCE_DIR"/* "$APP_DIR"/
+          rm -rf "$SOURCE_DIR"
+          
+          cd "$APP_DIR"
+          log "Current directory: $(pwd)"
+          
+          # Verify files
+          if [ ! -f "docker-compose.production.yml" ]; then
+            log "❌ docker-compose.production.yml not found"
+            ls -la
+            exit 1
+          fi
+          
+          if [ ! -f ".env.production" ]; then
+            log "❌ .env.production not found"
+            ls -la
+            exit 1
+          fi
+          
+          # Create .env
+          cp .env.production .env
+          log "✅ Environment file created"
+          
+          # Build and start services
+          log "Building and starting services with Docker Compose..."
+          $DOCKER_COMPOSE -f docker-compose.production.yml up -d --build
+          
+          if [ $? -ne 0 ]; then
+            log "❌ Docker Compose failed"
+            $DOCKER_COMPOSE -f docker-compose.production.yml logs
+            exit 1
+          fi
+          
+          # Wait for services
+          log "Waiting for services to start..."
+          sleep 20
+          
+          # Check container status
+          log "Checking container status..."
+          $DOCKER_COMPOSE -f docker-compose.production.yml ps
+          
+          if ! $DOCKER_COMPOSE -f docker-compose.production.yml ps | grep -q "Up"; then
+            log "❌ Services failed to start"
+            $DOCKER_COMPOSE -f docker-compose.production.yml logs
+            exit 1
+          fi
+          
+          # Health check
+          log "Performing health checks..."
+          HEALTH_CHECK_COUNT=0
+          MAX_HEALTH_CHECKS=15
+          
+          while [ $HEALTH_CHECK_COUNT -lt $MAX_HEALTH_CHECKS ]; do
+            HEALTH_CHECK_COUNT=$((HEALTH_CHECK_COUNT + 1))
+            log "Health check attempt $HEALTH_CHECK_COUNT/$MAX_HEALTH_CHECKS"
+            
+            if curl -s --connect-timeout 5 --max-time 10 http://localhost:3001/health >/dev/null 2>&1; then
+              log "✅ Health check passed!"
+              
+              # Get health response
+              HEALTH_RESPONSE=$(curl -s http://localhost:3001/health 2>/dev/null || echo "Cannot get response")
+              log "Health response: $HEALTH_RESPONSE"
+              
+              break
+            fi
+            
+            if [ $HEALTH_CHECK_COUNT -eq $MAX_HEALTH_CHECKS ]; then
+              log "❌ Health check failed after $MAX_HEALTH_CHECKS attempts"
+              log "Container logs:"
+              $DOCKER_COMPOSE -f docker-compose.production.yml logs api
+              
+              # Rollback
+              if [ -d "$APP_DIR.backup" ]; then
+                log "🔄 Rolling back to previous version..."
+                $DOCKER_COMPOSE -f docker-compose.production.yml down
+                rm -rf "$APP_DIR"
+                mv "$APP_DIR.backup" "$APP_DIR"
+                cd "$APP_DIR"
+                if [ -f "docker-compose.production.yml" ]; then
+                  $DOCKER_COMPOSE -f docker-compose.production.yml up -d
+                fi
+                log "✅ Rollback completed"
+              fi
+              
+              exit 1
+            fi
+            
+            sleep 4
+          done
+          
+          # Success
+          log "🎉 DEPLOYMENT SUCCESSFUL!"
+          log "📊 Service Status:"
+          $DOCKER_COMPOSE -f docker-compose.production.yml ps
+          
+          log "📊 Application Info:"
+          echo "  - API URL: http://$(hostname -I | awk '{print $1}'):3001"
+          echo "  - Health URL: http://$(hostname -I | awk '{print $1}'):3001/health"
+          
+          # Cleanup
+          rm -rf "$APP_DIR.backup" 2>/dev/null || true
+          docker image prune -f >/dev/null 2>&1 || true
+          
+          log "=== DEPLOYMENT COMPLETED SUCCESSFULLY ==="
+          
+    - name: ✅ Deployment Success
+      if: success()
+      run: |
+        echo "🎉 Docker Compose deployment completed successfully!"
+        echo "🌐 API URL: http://${{ secrets.SERVER_HOST }}:3001"
+        echo "🏥 Health Check: http://${{ secrets.SERVER_HOST }}:3001/health"
+        
+    - name: ❌ Deployment Failed
+      if: failure()
+      run: |
+        echo "❌ Docker Compose deployment failed!"
+        echo "Please check the deployment logs above for details."

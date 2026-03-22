@@ -1,42 +1,23 @@
-# Production Dockerfile - Optimized
-FROM node:20-alpine AS builder
+# Production Dockerfile - Simple and Reliable
+FROM node:20-alpine
 
+# Set working directory
 WORKDIR /app
 
-# Copy package files
+# Install dependencies first (for better caching)
 COPY package*.json ./
-
-# Install dependencies
 RUN npm ci --only=production && npm cache clean --force
 
 # Copy source code
 COPY . .
 
-# Build application
+# Build the application
 RUN npm run build
 
-# Production stage
-FROM node:20-alpine AS production
-
-# Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
-
-# Create app user
+# Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nestjs -u 1001
-
-WORKDIR /app
-
-# Copy package files and install production dependencies
-COPY package*.json ./
-RUN npm ci --only=production && npm cache clean --force
-
-# Copy built application
-COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
-COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
-
-# Create logs directory
-RUN mkdir -p logs && chown nestjs:nodejs logs
+    adduser -S nestjs -u 1001 && \
+    chown -R nestjs:nodejs /app
 
 # Switch to non-root user
 USER nestjs
@@ -44,8 +25,5 @@ USER nestjs
 # Expose port
 EXPOSE 3001
 
-# Use dumb-init to handle signals properly
-ENTRYPOINT ["dumb-init", "--"]
-
-# Start application
+# Start the application
 CMD ["node", "dist/main.js"]
