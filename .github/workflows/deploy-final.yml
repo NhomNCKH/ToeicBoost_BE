@@ -1,0 +1,192 @@
+name: Final Production Deploy
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to Server
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      
+    - name: 📤 Upload code to server
+      uses: appleboy/scp-action@v0.1.7
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        source: "."
+        target: "/tmp/deploy-${{ github.sha }}"
+        rm: true
+        
+    - name: 🚀 Deploy on server
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 15m
+        sync: true
+        script: |
+          set -e
+          
+          echo "🚀 STARTING FINAL DEPLOYMENT..."
+          
+          # Variables
+          PROJECT_DIR="/var/www/toeicai/ToeicBoost_BE"
+          TEMP_DIR="/tmp/deploy-${{ github.sha }}"
+          
+          # Check Docker
+          docker --version || (echo "❌ Docker not installed" && exit 1)
+          
+          # Stop ALL processes on ports we need
+          echo "🛑 Stopping all processes on ports 3001..."
+          sudo pkill -f "node.*3001" || true
+          sudo pkill -f ":3001" || true
+          
+          # Kill processes on port 3001
+          sudo lsof -ti:3001 | xargs -r sudo kill -9 || true
+          
+          # Stop and remove ALL Docker containers
+          echo "🛑 Stopping all Docker containers..."
+          docker stop $(docker ps -aq) 2>/dev/null || true
+          docker rm $(docker ps -aq) 2>/dev/null || true
+          
+          # Remove all networks
+          docker network prune -f || true
+          
+          # Wait for cleanup
+          sleep 5
+          
+          # Backup and move new code
+          echo "📁 Installing new code..."
+          sudo mkdir -p "$PROJECT_DIR"
+          sudo chown -R $USER:$USER /var/www/toeicai
+          
+          if [ -d "$PROJECT_DIR" ]; then
+            rm -rf "$PROJECT_DIR.backup" 2>/dev/null || true
+            mv "$PROJECT_DIR" "$PROJECT_DIR.backup" 2>/dev/null || true
+          fi
+          
+          mv "$TEMP_DIR" "$PROJECT_DIR"
+          cd "$PROJECT_DIR"
+          
+          # Verify files
+          echo "✅ Verifying files..."
+          ls -la Dockerfile .env.production
+          
+          # Create simple .env
+          cp .env.production .env
+          
+          # Build image
+          echo "🏗️ Building Docker image..."
+          docker build -t toeicai-api:latest . || (echo "❌ Build failed" && exit 1)
+          
+          # Test database connection first
+          echo "🔍 Testing database connection..."
+          docker run --rm --env-file .env toeicai-api:latest node -e "
+          const { DataSource } = require('typeorm');
+          const config = {
+            type: 'postgres',
+            host: process.env.DB_HOST,
+            port: parseInt(process.env.DB_PORT),
+            username: process.env.DB_USERNAME,
+            password: process.env.DB_PASSWORD,
+            database: process.env.DB_DATABASE,
+          };
+          console.log('Testing connection to:', config.host + ':' + config.port);
+          const dataSource = new DataSource(config);
+          dataSource.initialize()
+            .then(() => {
+              console.log('✅ Database connection successful');
+              process.exit(0);
+            })
+            .catch((error) => {
+              console.log('❌ Database connection failed:', error.message);
+              process.exit(1);
+            });
+          " || (echo "❌ Database connection test failed" && exit 1)
+          
+          # Run container
+          echo "🚀 Starting container..."
+          docker run -d \
+            --name toeicai-api \
+            --restart unless-stopped \
+            -p 3001:3001 \
+            --env-file .env \
+            toeicai-api:latest || (echo "❌ Container start failed" && exit 1)
+          
+          # Wait and check
+          echo "⏳ Waiting for application to start..."
+          sleep 15
+          
+          # Check container status
+          if docker ps | grep -q "toeicai-api"; then
+            echo "✅ Container is running"
+          else
+            echo "❌ Container not running, checking logs..."
+            docker logs toeicai-api
+            exit 1
+          fi
+          
+          # Health check
+          echo "🏥 Health check..."
+          for i in {1..20}; do
+            if curl -s --connect-timeout 3 --max-time 5 http://localhost:3001/health >/dev/null 2>&1; then
+              echo "✅ Health check passed!"
+              
+              # Show final status
+              echo "🎉 DEPLOYMENT SUCCESSFUL!"
+              echo "📊 Container status:"
+              docker ps --filter "name=toeicai-api"
+              
+              echo "📋 Application info:"
+              curl -s http://localhost:3001/health | head -200
+              
+              # Cleanup
+              rm -rf "$PROJECT_DIR.backup" 2>/dev/null || true
+              docker image prune -f || true
+              
+              exit 0
+            fi
+            echo "⏳ Health check attempt $i/20..."
+            sleep 3
+          done
+          
+          echo "❌ Health check failed"
+          echo "📋 Container logs:"
+          docker logs toeicai-api --tail=100
+          
+          # Rollback
+          if [ -d "$PROJECT_DIR.backup" ]; then
+            echo "🔄 Rolling back..."
+            docker stop toeicai-api || true
+            docker rm toeicai-api || true
+            cd ..
+            rm -rf "$PROJECT_DIR"
+            mv "$PROJECT_DIR.backup" "$PROJECT_DIR"
+            echo "✅ Rollback completed"
+          fi
+          
+          exit 1
+          
+    - name: ✅ Success
+      if: success()
+      run: |
+        echo "🎉 Final deployment completed successfully!"
+        echo "📊 API URL: http://${{ secrets.SERVER_HOST }}:3001"
+        echo "📊 Health: http://${{ secrets.SERVER_HOST }}:3001/health"
+        
+    - name: ❌ Failure
+      if: failure()
+      run: |
+        echo "❌ Final deployment failed!"
+        echo "Check the logs above for details."

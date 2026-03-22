@@ -1,42 +1,39 @@
-# Multi-stage build for production
+# Production Dockerfile - Optimized
 FROM node:20-alpine AS builder
 
-# Set working directory
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
 
-# Install all dependencies (including dev dependencies for build)
-RUN npm ci
+# Install dependencies
+RUN npm ci --only=production && npm cache clean --force
 
 # Copy source code
 COPY . .
 
-# Build the application
+# Build application
 RUN npm run build
 
 # Production stage
 FROM node:20-alpine AS production
 
-# Create app user for security
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nestjs -u 1001
+# Install dumb-init for proper signal handling
+RUN apk add --no-cache dumb-init
 
-# Set working directory
+# Create app user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nestjs -u 1001
+
 WORKDIR /app
 
-# Copy package files
+# Copy package files and install production dependencies
 COPY package*.json ./
-
-# Install only production dependencies
 RUN npm ci --only=production && npm cache clean --force
 
-# Copy built application from builder stage
+# Copy built application
 COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
-
-# Copy any other necessary files
-COPY --chown=nestjs:nodejs .env.example .env
+COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
 
 # Create logs directory
 RUN mkdir -p logs && chown nestjs:nodejs logs
@@ -47,9 +44,8 @@ USER nestjs
 # Expose port
 EXPOSE 3001
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3001/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
+# Use dumb-init to handle signals properly
+ENTRYPOINT ["dumb-init", "--"]
 
-# Start the application
-CMD ["npm", "run", "start:prod"]
+# Start application
+CMD ["node", "dist/main.js"]
