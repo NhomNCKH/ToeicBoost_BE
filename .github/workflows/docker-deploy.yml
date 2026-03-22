@@ -1,9 +1,13 @@
-name: Docker Production Deploy
+name: Docker Production Deploy (DISABLED)
 
 on:
-  push:
-    branches: [ main ]
+  # Disabled - use simple-deploy.yml instead  
   workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Force deploy (workflow disabled)'
+        required: false
+        default: 'false'
 
 permissions:
   contents: read

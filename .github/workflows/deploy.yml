@@ -1,9 +1,13 @@
-name: Deploy to Production
+name: Deploy to Production (DISABLED)
 
 on:
-  push:
-    branches: [ main ]
+  # Disabled - use simple-deploy.yml instead
   workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Force deploy (workflow disabled)'
+        required: false
+        default: 'false'
 
 jobs:
   build:

@@ -68,6 +68,26 @@ jobs:
             $DOCKER_COMPOSE -f docker-compose.production.yml down --timeout 30 || true
           fi
           
+          # Stop any existing Node.js processes on port 3001
+          echo "🛑 Stopping existing Node.js processes..."
+          if [ -f "app.pid" ]; then
+            OLD_PID=$(cat app.pid)
+            if kill -0 $OLD_PID 2>/dev/null; then
+              echo "Stopping process $OLD_PID..."
+              kill $OLD_PID 2>/dev/null || true
+              sleep 3
+            fi
+            rm -f app.pid
+          fi
+          
+          # Kill any process using port 3001
+          PORT_PIDS=$(lsof -ti:3001 2>/dev/null || true)
+          if [ -n "$PORT_PIDS" ]; then
+            echo "Killing processes on port 3001: $PORT_PIDS"
+            echo "$PORT_PIDS" | xargs -r kill 2>/dev/null || true
+            sleep 2
+          fi
+          
           # Backup current deployment
           if [ -d "$PROJECT_DIR" ]; then
             echo "💾 Creating backup..."
@@ -93,8 +113,18 @@ jobs:
             exit 1
           fi
           
+          # Setup environment file
+          if [ ! -f ".env.production" ]; then
+            echo "❌ .env.production not found"
+            ls -la
+            exit 1
+          fi
+          
+          # Copy .env.production to .env for container
+          cp .env.production .env
+          
           echo "✅ Required files found:"
-          ls -la Dockerfile docker-compose.production.yml .env.production
+          ls -la Dockerfile docker-compose.production.yml .env.production .env
           
           # Build Docker image locally
           echo "🏗️ Building Docker image: $IMAGE_TAG"
