@@ -42,3 +42,15 @@ lerna-debug.log*
 
 # Docker
 docker-compose.override.yml
+.env.production.local
+logs/
+backups/
+
+# SSL certificates (if using)
+nginx/ssl/*.pem
+nginx/ssl/*.key
+nginx/ssl/*.crt
+
+# Database dumps
+*.sql
+*.dump
