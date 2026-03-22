@@ -1,0 +1,119 @@
+name: Simple Docker Deploy
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to Server
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      
+    - name: 🚀 Deploy to server
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 10m
+        sync: true
+        script: |
+          echo "🚀 STARTING SIMPLE DOCKER DEPLOYMENT..."
+          
+          # Variables
+          PROJECT_DIR="/var/www/toeicai/ToeicBoost_BE"
+          REPO_URL="https://github.com/NhomNCKH/ToeicBoost_BE.git"
+          
+          # Check Docker
+          docker --version || (echo "❌ Docker not installed" && exit 1)
+          
+          # Check Docker Compose
+          if command -v docker-compose &> /dev/null; then
+            DOCKER_COMPOSE="docker-compose"
+          elif docker compose version &> /dev/null; then
+            DOCKER_COMPOSE="docker compose"
+          else
+            echo "❌ Docker Compose not installed" && exit 1
+          fi
+          
+          # Create and navigate to project directory
+          sudo mkdir -p "$PROJECT_DIR"
+          sudo chown -R $USER:$USER /var/www/toeicai
+          cd "$PROJECT_DIR"
+          
+          # Stop existing containers
+          echo "🛑 Stopping existing containers..."
+          if [ -f "docker-compose.production.yml" ]; then
+            $DOCKER_COMPOSE -f docker-compose.production.yml down --timeout 30 || true
+          fi
+          
+          # Pull latest code
+          echo "📥 Pulling latest code..."
+          if [ -d ".git" ]; then
+            git fetch origin
+            git reset --hard origin/main
+          else
+            git clone "$REPO_URL" .
+          fi
+          
+          # Build image locally
+          echo "🏗️ Building Docker image..."
+          docker build -t toeicai-api:latest .
+          
+          # Create production env if not exists
+          if [ ! -f ".env.production" ]; then
+            echo "📋 Creating production environment file..."
+            cp .env.example .env.production
+            # Update with production values
+            sed -i 's/NODE_ENV=development/NODE_ENV=production/' .env.production
+            sed -i 's/DB_HOST=localhost/DB_HOST=postgres/' .env.production
+            sed -i 's/REDIS_HOST=localhost/REDIS_HOST=redis/' .env.production
+          fi
+          
+          # Update docker-compose to use local image
+          echo "🔧 Updating docker-compose..."
+          if [ -f "docker-compose.production.yml" ]; then
+            sed -i 's|image: .*toeicboost.*|image: toeicai-api:latest|g' docker-compose.production.yml
+          else
+            echo "❌ docker-compose.production.yml not found"
+            exit 1
+          fi
+          
+          # Start services
+          echo "🚀 Starting services..."
+          $DOCKER_COMPOSE -f docker-compose.production.yml up -d
+          
+          # Wait and check
+          echo "⏳ Waiting for services..."
+          sleep 30
+          
+          # Health check
+          for i in {1..10}; do
+            if curl -s http://localhost:3001/health >/dev/null 2>&1; then
+              echo "✅ Deployment successful!"
+              echo "📊 Container status:"
+              $DOCKER_COMPOSE -f docker-compose.production.yml ps
+              exit 0
+            fi
+            echo "⏳ Checking health... ($i/10)"
+            sleep 5
+          done
+          
+          echo "❌ Health check failed"
+          $DOCKER_COMPOSE -f docker-compose.production.yml logs api --tail=20
+          exit 1
+          
+    - name: ✅ Success
+      if: success()
+      run: echo "🎉 Simple deployment completed!"
+      
+    - name: ❌ Failure  
+      if: failure()
+      run: echo "❌ Deployment failed!"
