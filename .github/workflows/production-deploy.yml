@@ -107,12 +107,10 @@ jobs:
           if [ ! -s "docker-compose.production.yml" ]; then
             log "❌ docker-compose.production.yml is empty after copy"
             log "File size: $(stat -c%s docker-compose.production.yml)"
-            log "Source file check:"
-            ls -la "$SOURCE_DIR/docker-compose.production.yml" 2>/dev/null || echo "Source file not found"
             
-            # Try to recreate the file
-            log "Attempting to recreate docker-compose.production.yml"
-            cat > docker-compose.production.yml << 'EOF'
+            # Recreate the file
+            log "Recreating docker-compose.production.yml"
+            cat > docker-compose.production.yml << 'DOCKEREOF'
 version: '3.8'
 
 services:
@@ -134,17 +132,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 256M
 
 networks:
   toeic-network:
     driver: bridge
-EOF
+DOCKEREOF
             
             if [ ! -s "docker-compose.production.yml" ]; then
               log "❌ Failed to create docker-compose.production.yml"
@@ -159,13 +151,6 @@ EOF
           
           rm -rf "$SOURCE_DIR"
           
-          if [ ! -f ".env.production" ]; then
-            log "❌ .env.production not found"
-            ls -la
-            exit 1
-          fi
-          
-          # Verify .env.production exists (docker-compose will use this directly)
           if [ ! -f ".env.production" ]; then
             log "❌ .env.production not found"
             ls -la
