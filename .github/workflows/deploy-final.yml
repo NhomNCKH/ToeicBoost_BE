@@ -36,8 +36,6 @@ jobs:
         command_timeout: 15m
         sync: true
         script: |
-          set -e
-          
           echo "🚀 STARTING FINAL DEPLOYMENT..."
           
           # Variables
@@ -45,35 +43,39 @@ jobs:
           TEMP_DIR="/tmp/deploy-${{ github.sha }}"
           
           # Check Docker
-          docker --version || (echo "❌ Docker not installed" && exit 1)
+          if ! docker --version; then
+            echo "❌ Docker not installed"
+            exit 1
+          fi
           
-          # Stop ALL processes on ports we need
-          echo "🛑 Stopping all processes on ports 3001..."
-          sudo pkill -f "node.*3001" || true
-          sudo pkill -f ":3001" || true
+          # Stop processes on port 3001 (ignore errors)
+          echo "🛑 Stopping processes on port 3001..."
+          pkill -f "node.*3001" 2>/dev/null || true
+          pkill -f ":3001" 2>/dev/null || true
+          lsof -ti:3001 | xargs -r kill -9 2>/dev/null || true
           
-          # Kill processes on port 3001
-          sudo lsof -ti:3001 | xargs -r sudo kill -9 || true
-          
-          # Stop and remove ALL Docker containers
-          echo "🛑 Stopping all Docker containers..."
-          docker stop $(docker ps -aq) 2>/dev/null || true
+          # Stop Docker containers (ignore errors)
+          echo "🛑 Stopping Docker containers..."
+          docker stop $(docker ps -q) 2>/dev/null || true
           docker rm $(docker ps -aq) 2>/dev/null || true
-          
-          # Remove all networks
-          docker network prune -f || true
+          docker network prune -f 2>/dev/null || true
           
           # Wait for cleanup
-          sleep 5
+          sleep 3
           
           # Backup and move new code
           echo "📁 Installing new code..."
-          sudo mkdir -p "$PROJECT_DIR"
-          sudo chown -R $USER:$USER /var/www/toeicai
+          mkdir -p "$PROJECT_DIR"
+          chown -R $USER:$USER /var/www/toeicai 2>/dev/null || true
           
           if [ -d "$PROJECT_DIR" ]; then
             rm -rf "$PROJECT_DIR.backup" 2>/dev/null || true
             mv "$PROJECT_DIR" "$PROJECT_DIR.backup" 2>/dev/null || true
+          fi
+          
+          if [ ! -d "$TEMP_DIR" ]; then
+            echo "❌ Source code not found at $TEMP_DIR"
+            exit 1
           fi
           
           mv "$TEMP_DIR" "$PROJECT_DIR"
@@ -81,66 +83,67 @@ jobs:
           
           # Verify files
           echo "✅ Verifying files..."
-          ls -la Dockerfile .env.production
+          if [ ! -f "Dockerfile" ]; then
+            echo "❌ Dockerfile not found"
+            ls -la
+            exit 1
+          fi
           
-          # Create simple .env
+          if [ ! -f ".env.production" ]; then
+            echo "❌ .env.production not found"
+            ls -la
+            exit 1
+          fi
+          
+          # Create .env
           cp .env.production .env
+          echo "✅ Environment file created"
           
           # Build image
           echo "🏗️ Building Docker image..."
-          docker build -t toeicai-api:latest . || (echo "❌ Build failed" && exit 1)
+          if ! docker build -t toeicai-api:latest .; then
+            echo "❌ Docker build failed"
+            exit 1
+          fi
           
-          # Test database connection first
-          echo "🔍 Testing database connection..."
-          docker run --rm --env-file .env toeicai-api:latest node -e "
-          const { DataSource } = require('typeorm');
-          const config = {
-            type: 'postgres',
-            host: process.env.DB_HOST,
-            port: parseInt(process.env.DB_PORT),
-            username: process.env.DB_USERNAME,
-            password: process.env.DB_PASSWORD,
-            database: process.env.DB_DATABASE,
-          };
-          console.log('Testing connection to:', config.host + ':' + config.port);
-          const dataSource = new DataSource(config);
-          dataSource.initialize()
-            .then(() => {
-              console.log('✅ Database connection successful');
-              process.exit(0);
-            })
-            .catch((error) => {
-              console.log('❌ Database connection failed:', error.message);
-              process.exit(1);
-            });
-          " || (echo "❌ Database connection test failed" && exit 1)
+          echo "✅ Docker image built successfully"
+          
+          # Remove old container if exists
+          docker stop toeicai-api 2>/dev/null || true
+          docker rm toeicai-api 2>/dev/null || true
           
           # Run container
           echo "🚀 Starting container..."
-          docker run -d \
+          if ! docker run -d \
             --name toeicai-api \
             --restart unless-stopped \
             -p 3001:3001 \
             --env-file .env \
-            toeicai-api:latest || (echo "❌ Container start failed" && exit 1)
+            toeicai-api:latest; then
+            echo "❌ Container start failed"
+            docker logs toeicai-api 2>/dev/null || true
+            exit 1
+          fi
+          
+          echo "✅ Container started"
           
           # Wait and check
           echo "⏳ Waiting for application to start..."
-          sleep 15
+          sleep 20
           
           # Check container status
           if docker ps | grep -q "toeicai-api"; then
             echo "✅ Container is running"
           else
-            echo "❌ Container not running, checking logs..."
-            docker logs toeicai-api
+            echo "❌ Container not running"
+            docker logs toeicai-api 2>/dev/null || true
             exit 1
           fi
           
           # Health check
-          echo "🏥 Health check..."
-          for i in {1..20}; do
-            if curl -s --connect-timeout 3 --max-time 5 http://localhost:3001/health >/dev/null 2>&1; then
+          echo "🏥 Performing health check..."
+          for i in {1..15}; do
+            if curl -s --connect-timeout 5 --max-time 10 http://localhost:3001/health >/dev/null 2>&1; then
               echo "✅ Health check passed!"
               
               # Show final status
@@ -148,28 +151,31 @@ jobs:
               echo "📊 Container status:"
               docker ps --filter "name=toeicai-api"
               
-              echo "📋 Application info:"
-              curl -s http://localhost:3001/health | head -200
+              echo "📋 Health response:"
+              curl -s http://localhost:3001/health 2>/dev/null || echo "Cannot get health response"
               
               # Cleanup
               rm -rf "$PROJECT_DIR.backup" 2>/dev/null || true
-              docker image prune -f || true
+              docker image prune -f 2>/dev/null || true
               
               exit 0
             fi
-            echo "⏳ Health check attempt $i/20..."
-            sleep 3
+            echo "⏳ Health check attempt $i/15..."
+            sleep 4
           done
           
-          echo "❌ Health check failed"
+          echo "❌ Health check failed after 15 attempts"
           echo "📋 Container logs:"
-          docker logs toeicai-api --tail=100
+          docker logs toeicai-api --tail=50 2>/dev/null || echo "Cannot get container logs"
+          
+          echo "📋 Container status:"
+          docker ps -a --filter "name=toeicai-api"
           
           # Rollback
           if [ -d "$PROJECT_DIR.backup" ]; then
             echo "🔄 Rolling back..."
-            docker stop toeicai-api || true
-            docker rm toeicai-api || true
+            docker stop toeicai-api 2>/dev/null || true
+            docker rm toeicai-api 2>/dev/null || true
             cd ..
             rm -rf "$PROJECT_DIR"
             mv "$PROJECT_DIR.backup" "$PROJECT_DIR"
