@@ -26,53 +26,102 @@ jobs:
         target: "/tmp/deploy-${{ github.sha }}"
         rm: true
         
-    - name: 🚀 Deploy on server
+    - name: � Stop existing processes
       uses: appleboy/ssh-action@v1.1.0
       with:
         host: ${{ secrets.SERVER_HOST }}
         username: ${{ secrets.SERVER_USER }}
         key: ${{ secrets.SERVER_SSH_KEY }}
         port: 22
-        command_timeout: 15m
+        command_timeout: 2m
         sync: true
         script: |
-          echo "🚀 STARTING FINAL DEPLOYMENT..."
+          echo "� Stopping processes on port 3001..."
           
-          # Variables
+          # Method 1: Find and kill processes gently
+          PIDS=$(ps aux | grep -E "(node.*3001|:3001)" | grep -v grep | awk '{print $2}' || true)
+          if [ -n "$PIDS" ]; then
+            echo "Found processes: $PIDS"
+            for pid in $PIDS; do
+              echo "Killing process $pid..."
+              kill $pid 2>/dev/null || true
+            done
+            sleep 2
+          fi
+          
+          # Method 2: Use lsof to find port users
+          PORT_PIDS=$(lsof -ti:3001 2>/dev/null || true)
+          if [ -n "$PORT_PIDS" ]; then
+            echo "Found processes on port 3001: $PORT_PIDS"
+            for pid in $PORT_PIDS; do
+              kill -9 $pid 2>/dev/null || true
+            done
+          fi
+          
+          echo "✅ Process cleanup completed"
+          
+    - name: 🐳 Stop Docker containers
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 3m
+        sync: true
+        script: |
+          echo "🐳 Stopping Docker containers..."
+          
+          # Stop specific container first
+          docker stop toeicai-api 2>/dev/null || true
+          docker rm toeicai-api 2>/dev/null || true
+          
+          # Stop all containers if needed
+          CONTAINERS=$(docker ps -q)
+          if [ -n "$CONTAINERS" ]; then
+            echo "Stopping containers: $CONTAINERS"
+            docker stop $CONTAINERS 2>/dev/null || true
+          fi
+          
+          # Remove stopped containers
+          STOPPED=$(docker ps -aq)
+          if [ -n "$STOPPED" ]; then
+            echo "Removing containers: $STOPPED"
+            docker rm $STOPPED 2>/dev/null || true
+          fi
+          
+          # Clean networks
+          docker network prune -f 2>/dev/null || true
+          
+          echo "✅ Docker cleanup completed"
+          
+    - name: 📁 Setup deployment directory
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 2m
+        sync: true
+        script: |
+          echo "📁 Setting up deployment directory..."
+          
           PROJECT_DIR="/var/www/toeicai/ToeicBoost_BE"
           TEMP_DIR="/tmp/deploy-${{ github.sha }}"
           
-          # Check Docker
-          if ! docker --version; then
-            echo "❌ Docker not installed"
-            exit 1
-          fi
-          
-          # Stop processes on port 3001 (ignore errors)
-          echo "🛑 Stopping processes on port 3001..."
-          pkill -f "node.*3001" 2>/dev/null || true
-          pkill -f ":3001" 2>/dev/null || true
-          lsof -ti:3001 | xargs -r kill -9 2>/dev/null || true
-          
-          # Stop Docker containers (ignore errors)
-          echo "🛑 Stopping Docker containers..."
-          docker stop $(docker ps -q) 2>/dev/null || true
-          docker rm $(docker ps -aq) 2>/dev/null || true
-          docker network prune -f 2>/dev/null || true
-          
-          # Wait for cleanup
-          sleep 3
-          
-          # Backup and move new code
-          echo "📁 Installing new code..."
+          # Create directories
           mkdir -p "$PROJECT_DIR"
           chown -R $USER:$USER /var/www/toeicai 2>/dev/null || true
           
+          # Backup existing
           if [ -d "$PROJECT_DIR" ]; then
             rm -rf "$PROJECT_DIR.backup" 2>/dev/null || true
             mv "$PROJECT_DIR" "$PROJECT_DIR.backup" 2>/dev/null || true
+            echo "✅ Backup created"
           fi
           
+          # Move new code
           if [ ! -d "$TEMP_DIR" ]; then
             echo "❌ Source code not found at $TEMP_DIR"
             exit 1
@@ -82,7 +131,6 @@ jobs:
           cd "$PROJECT_DIR"
           
           # Verify files
-          echo "✅ Verifying files..."
           if [ ! -f "Dockerfile" ]; then
             echo "❌ Dockerfile not found"
             ls -la
@@ -97,23 +145,54 @@ jobs:
           
           # Create .env
           cp .env.production .env
-          echo "✅ Environment file created"
           
-          # Build image
+          echo "✅ Deployment directory ready"
+          echo "� Files:"
+          ls -la Dockerfile .env.production .env
+          
+    - name: 🏗️ Build Docker image
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 10m
+        sync: true
+        script: |
           echo "🏗️ Building Docker image..."
+          
+          cd "/var/www/toeicai/ToeicBoost_BE"
+          
+          # Remove old image
+          docker rmi toeicai-api:latest 2>/dev/null || true
+          
+          # Build new image
           if ! docker build -t toeicai-api:latest .; then
             echo "❌ Docker build failed"
+            echo "📋 Build context:"
+            ls -la
             exit 1
           fi
           
           echo "✅ Docker image built successfully"
+          docker images | grep toeicai-api
           
-          # Remove old container if exists
-          docker stop toeicai-api 2>/dev/null || true
-          docker rm toeicai-api 2>/dev/null || true
+    - name: 🚀 Start application
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 5m
+        sync: true
+        script: |
+          echo "🚀 Starting application..."
           
-          # Run container
-          echo "🚀 Starting container..."
+          cd "/var/www/toeicai/ToeicBoost_BE"
+          
+          # Start container
           if ! docker run -d \
             --name toeicai-api \
             --restart unless-stopped \
@@ -127,51 +206,67 @@ jobs:
           
           echo "✅ Container started"
           
-          # Wait and check
-          echo "⏳ Waiting for application to start..."
-          sleep 20
+          # Wait for startup
+          echo "⏳ Waiting for application startup..."
+          sleep 15
           
-          # Check container status
+          # Check container
           if docker ps | grep -q "toeicai-api"; then
             echo "✅ Container is running"
+            docker ps --filter "name=toeicai-api"
           else
             echo "❌ Container not running"
+            docker ps -a --filter "name=toeicai-api"
             docker logs toeicai-api 2>/dev/null || true
             exit 1
           fi
           
-          # Health check
+    - name: 🏥 Health check and finalize
+      uses: appleboy/ssh-action@v1.1.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: 22
+        command_timeout: 3m
+        sync: true
+        script: |
           echo "🏥 Performing health check..."
-          for i in {1..15}; do
+          
+          # Health check loop
+          for i in {1..12}; do
             if curl -s --connect-timeout 5 --max-time 10 http://localhost:3001/health >/dev/null 2>&1; then
               echo "✅ Health check passed!"
               
-              # Show final status
+              # Show success info
               echo "🎉 DEPLOYMENT SUCCESSFUL!"
               echo "📊 Container status:"
               docker ps --filter "name=toeicai-api"
               
               echo "📋 Health response:"
-              curl -s http://localhost:3001/health 2>/dev/null || echo "Cannot get health response"
+              curl -s http://localhost:3001/health 2>/dev/null | head -200 || echo "Cannot get response"
               
               # Cleanup
-              rm -rf "$PROJECT_DIR.backup" 2>/dev/null || true
+              rm -rf "/var/www/toeicai/ToeicBoost_BE.backup" 2>/dev/null || true
               docker image prune -f 2>/dev/null || true
               
+              echo "✅ Deployment completed successfully!"
               exit 0
             fi
-            echo "⏳ Health check attempt $i/15..."
-            sleep 4
+            echo "⏳ Health check attempt $i/12..."
+            sleep 5
           done
           
-          echo "❌ Health check failed after 15 attempts"
+          # Health check failed
+          echo "❌ Health check failed after 12 attempts"
           echo "📋 Container logs:"
-          docker logs toeicai-api --tail=50 2>/dev/null || echo "Cannot get container logs"
+          docker logs toeicai-api --tail=50 2>/dev/null || echo "Cannot get logs"
           
           echo "📋 Container status:"
           docker ps -a --filter "name=toeicai-api"
           
           # Rollback
+          PROJECT_DIR="/var/www/toeicai/ToeicBoost_BE"
           if [ -d "$PROJECT_DIR.backup" ]; then
             echo "🔄 Rolling back..."
             docker stop toeicai-api 2>/dev/null || true
