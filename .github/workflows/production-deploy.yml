@@ -49,73 +49,32 @@ jobs:
             cd ToeicBoost_BE
           fi
           
-          # Always create fresh docker-compose.production.yml
+          # Create docker-compose.production.yml
           echo "Creating docker-compose.production.yml..."
-          cat > docker-compose.production.yml << 'DOCKEREOF'
-version: "3.8"
-
-services:
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: toeic-api-prod
-    ports:
-      - "3001:3001"
-    env_file:
-      - .env.production
-    restart: unless-stopped
-    networks:
-      - toeic-network
-    mem_limit: 512m
-
-networks:
-  toeic-network:
-    driver: bridge
-DOCKEREOF
+          cat > docker-compose.production.yml << 'EOF'
+          version: "3.8"
+          
+          services:
+            api:
+              build:
+                context: .
+                dockerfile: Dockerfile
+              container_name: toeic-api-prod
+              ports:
+                - "3001:3001"
+              env_file:
+                - .env.production
+              restart: unless-stopped
+              networks:
+                - toeic-network
+              mem_limit: 512m
+          
+          networks:
+            toeic-network:
+              driver: bridge
+          EOF
           
           echo "✅ docker-compose.production.yml created"
-          echo "File content:"
-          cat docker-compose.production.yml
-          
-          # Ensure Dockerfile is correct for production build
-          echo "Updating Dockerfile for production..."
-          cat > Dockerfile << 'DOCKERFILEEOF'
-# Production Dockerfile - Simple and Reliable
-FROM node:20-alpine
-
-# Set working directory
-WORKDIR /app
-
-# Install dependencies first (including dev dependencies for build)
-COPY package*.json ./
-RUN npm ci && npm cache clean --force
-
-# Copy source code
-COPY . .
-
-# Build the application
-RUN npm run build
-
-# Remove dev dependencies after build
-RUN npm ci --only=production && npm cache clean --force
-
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nestjs -u 1001 && \
-    chown -R nestjs:nodejs /app
-
-# Switch to non-root user
-USER nestjs
-
-# Expose port
-EXPOSE 3001
-
-# Start the application
-CMD ["node", "dist/main.js"]
-DOCKERFILEEOF
-          
-          echo "✅ Dockerfile updated"
           
           # Build and start
           echo "Building and starting services..."
