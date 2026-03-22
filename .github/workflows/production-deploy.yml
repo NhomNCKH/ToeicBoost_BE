@@ -117,9 +117,14 @@ jobs:
             exit 1
           fi
           
-          # Create .env
-          cp .env.production .env
-          log "✅ Environment file created"
+          # Verify .env.production exists (docker-compose will use this directly)
+          if [ ! -f ".env.production" ]; then
+            log "❌ .env.production not found"
+            ls -la
+            exit 1
+          fi
+          
+          log "✅ Environment file (.env.production) verified"
           
           # Validate docker-compose file
           log "Validating docker-compose.production.yml..."
