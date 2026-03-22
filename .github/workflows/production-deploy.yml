@@ -46,7 +46,7 @@ jobs:
           else
             mkdir -p /var/www/toeicai
             cd /var/www/toeicai
-            git clone "$REPO_URL" ToeicBoost_BE
+            git clone git@github.com:NhomNCKH/ToeicBoost_BE.git ToeicBoost_BE
             cd ToeicBoost_BE
           fi
           
@@ -54,7 +54,7 @@ jobs:
           if [ ! -f "docker-compose.production.yml" ]; then
             echo "Creating docker-compose.production.yml..."
             cat > docker-compose.production.yml << 'EOF'
-          version: '3.8'
+          version: "3.8"
           
           services:
             api:
@@ -69,12 +69,7 @@ jobs:
               restart: unless-stopped
               networks:
                 - toeic-network
-              healthcheck:
-                test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health"]
-                interval: 30s
-                timeout: 10s
-                retries: 3
-                start_period: 40s
+              mem_limit: 512m
           
           networks:
             toeic-network:
