@@ -61,32 +61,43 @@ jobs:
           sudo mkdir -p "$PROJECT_DIR"
           sudo chown -R $USER:$USER /var/www/toeicai
           
-          # Stop existing containers
-          echo "🛑 Stopping existing containers..."
-          cd "$PROJECT_DIR" 2>/dev/null || true
-          if [ -f "docker-compose.production.yml" ]; then
-            $DOCKER_COMPOSE -f docker-compose.production.yml down --timeout 30 || true
-          fi
+          # Stop ALL existing processes and containers
+          echo "🛑 Stopping ALL existing processes and containers..."
           
-          # Stop any existing Node.js processes on port 3001
-          echo "🛑 Stopping existing Node.js processes..."
-          if [ -f "app.pid" ]; then
-            OLD_PID=$(cat app.pid)
+          # Stop any existing Node.js processes
+          if [ -f "$PROJECT_DIR/app.pid" ]; then
+            OLD_PID=$(cat "$PROJECT_DIR/app.pid")
             if kill -0 $OLD_PID 2>/dev/null; then
-              echo "Stopping process $OLD_PID..."
+              echo "Stopping Node.js process $OLD_PID..."
               kill $OLD_PID 2>/dev/null || true
               sleep 3
             fi
-            rm -f app.pid
+            rm -f "$PROJECT_DIR/app.pid"
           fi
           
-          # Kill any process using port 3001
-          PORT_PIDS=$(lsof -ti:3001 2>/dev/null || true)
-          if [ -n "$PORT_PIDS" ]; then
-            echo "Killing processes on port 3001: $PORT_PIDS"
-            echo "$PORT_PIDS" | xargs -r kill 2>/dev/null || true
-            sleep 2
-          fi
+          # Kill ALL processes using ports 3001, 5432, 6379, 9000, 9001
+          for port in 3001 5432 6379 9000 9001; do
+            PORT_PIDS=$(lsof -ti:$port 2>/dev/null || true)
+            if [ -n "$PORT_PIDS" ]; then
+              echo "Killing processes on port $port: $PORT_PIDS"
+              echo "$PORT_PIDS" | xargs -r kill -9 2>/dev/null || true
+            fi
+          done
+          
+          # Stop ALL Docker containers (not just project ones)
+          echo "🛑 Stopping ALL Docker containers..."
+          docker stop $(docker ps -q) 2>/dev/null || true
+          
+          # Remove containers with conflicting names
+          echo "🗑️ Removing conflicting containers..."
+          docker rm -f toeic_ai_postgres_prod toeic_ai_redis_prod toeic_ai_minio_prod toeic_ai_nginx_prod toeic_ai_api_prod 2>/dev/null || true
+          docker rm -f toeicai_postgres_prod toeicai_redis_prod toeicai_minio_prod toeicai_nginx_prod toeicai_api_prod 2>/dev/null || true
+          
+          # Remove networks
+          docker network rm toeicai_toeic_network toeic_network 2>/dev/null || true
+          
+          # Wait for cleanup
+          sleep 5
           
           # Backup current deployment
           if [ -d "$PROJECT_DIR" ]; then
@@ -107,8 +118,8 @@ jobs:
             exit 1
           fi
           
-          if [ ! -f "docker-compose.production.yml" ]; then
-            echo "❌ docker-compose.production.yml not found"
+          if [ ! -f "docker-compose.simple.yml" ]; then
+            echo "❌ docker-compose.simple.yml not found"
             ls -la
             exit 1
           fi
@@ -124,18 +135,13 @@ jobs:
           cp .env.production .env
           
           echo "✅ Required files found:"
-          ls -la Dockerfile docker-compose.production.yml .env.production .env
+          ls -la Dockerfile docker-compose.simple.yml .env.production .env
           
           # Build Docker image locally
           echo "🏗️ Building Docker image: $IMAGE_TAG"
           docker build -t "$IMAGE_TAG" .
           
-          # Update docker-compose to use local image
-          echo "🔧 Updating docker-compose configuration..."
-          sed -i "s|image: .*toeicboost.*|image: $IMAGE_TAG|g" docker-compose.production.yml
-          
           # Set environment variables
-          export DOCKER_REGISTRY="local"
           export IMAGE_TAG="${{ github.sha }}"
           export COMPOSE_PROJECT_NAME="toeicai"
           
@@ -143,9 +149,9 @@ jobs:
           echo "  - IMAGE_TAG: $IMAGE_TAG"
           echo "  - COMPOSE_PROJECT_NAME: $COMPOSE_PROJECT_NAME"
           
-          # Start services
-          echo "🚀 Starting services..."
-          $DOCKER_COMPOSE -f docker-compose.production.yml up -d
+          # Start API service only (connect to existing PostgreSQL)
+          echo "� Starting API service..."
+          $DOCKER_COMPOSE -f docker-compose.simple.yml up -d
           
           # Wait for services
           echo "⏳ Waiting for services to start..."
@@ -153,7 +159,7 @@ jobs:
           
           # Check containers
           echo "📊 Container status:"
-          $DOCKER_COMPOSE -f docker-compose.production.yml ps
+          $DOCKER_COMPOSE -f docker-compose.simple.yml ps
           
           # Health check
           echo "🏥 Performing health check..."
@@ -164,7 +170,7 @@ jobs:
               # Show final status
               echo "🎉 DEPLOYMENT SUCCESSFUL!"
               echo "📊 Final status:"
-              $DOCKER_COMPOSE -f docker-compose.production.yml ps
+              $DOCKER_COMPOSE -f docker-compose.simple.yml ps
               
               echo "📋 Service URLs:"
               echo "  - API: http://$(hostname -I | awk '{print $1}'):3001"
@@ -182,18 +188,18 @@ jobs:
             elif [ $i -eq 10 ]; then
               echo "❌ API health check failed after 10 attempts"
               echo "📋 Container logs:"
-              $DOCKER_COMPOSE -f docker-compose.production.yml logs api --tail=50
+              $DOCKER_COMPOSE -f docker-compose.simple.yml logs api --tail=50
               
               # Rollback
               if [ -d "$PROJECT_DIR.backup" ]; then
                 echo "🔄 Rolling back to previous version..."
-                $DOCKER_COMPOSE -f docker-compose.production.yml down
+                $DOCKER_COMPOSE -f docker-compose.simple.yml down
                 cd ..
                 rm -rf "$PROJECT_DIR"
                 mv "$PROJECT_DIR.backup" "$PROJECT_DIR"
                 cd "$PROJECT_DIR"
-                if [ -f "docker-compose.production.yml" ]; then
-                  $DOCKER_COMPOSE -f docker-compose.production.yml up -d
+                if [ -f "docker-compose.simple.yml" ]; then
+                  $DOCKER_COMPOSE -f docker-compose.simple.yml up -d
                   echo "✅ Rollback completed"
                 fi
               fi
