@@ -25,6 +25,7 @@ jobs:
         source: "."
         target: "/tmp/app-${{ github.sha }}"
         rm: true
+        strip_components: 1
         
     - name: 🚀 Deploy with Docker Compose
       uses: appleboy/ssh-action@v1.1.0
@@ -88,28 +89,75 @@ jobs:
           mkdir -p "$APP_DIR"
           chown -R $USER:$USER /var/www/toeicai
           rm -rf "$APP_DIR"/*
-          cp -r "$SOURCE_DIR"/* "$APP_DIR"/
-          rm -rf "$SOURCE_DIR"
           
+          # Copy files with verification
+          log "Copying files from $SOURCE_DIR to $APP_DIR"
+          cp -r "$SOURCE_DIR"/* "$APP_DIR"/
+          
+          # Verify critical files exist and are not empty
           cd "$APP_DIR"
           log "Current directory: $(pwd)"
           
-          # Verify files
           if [ ! -f "docker-compose.production.yml" ]; then
-            log "❌ docker-compose.production.yml not found"
+            log "❌ docker-compose.production.yml not found after copy"
             ls -la
             exit 1
           fi
           
-          # Check if docker-compose.production.yml is valid
           if [ ! -s "docker-compose.production.yml" ]; then
-            log "❌ docker-compose.production.yml is empty"
-            ls -la docker-compose.production.yml
-            exit 1
+            log "❌ docker-compose.production.yml is empty after copy"
+            log "File size: $(stat -c%s docker-compose.production.yml)"
+            log "Source file check:"
+            ls -la "$SOURCE_DIR/docker-compose.production.yml" 2>/dev/null || echo "Source file not found"
+            
+            # Try to recreate the file
+            log "Attempting to recreate docker-compose.production.yml"
+            cat > docker-compose.production.yml << 'EOF'
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: toeic-api-prod
+    ports:
+      - "3001:3001"
+    env_file:
+      - .env.production
+    restart: unless-stopped
+    networks:
+      - toeic-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+networks:
+  toeic-network:
+    driver: bridge
+EOF
+            
+            if [ ! -s "docker-compose.production.yml" ]; then
+              log "❌ Failed to create docker-compose.production.yml"
+              exit 1
+            fi
+            log "✅ docker-compose.production.yml recreated successfully"
           fi
           
           log "✅ Verifying docker-compose.production.yml content..."
+          log "File size: $(stat -c%s docker-compose.production.yml) bytes"
           head -5 docker-compose.production.yml
+          
+          rm -rf "$SOURCE_DIR"
           
           if [ ! -f ".env.production" ]; then
             log "❌ .env.production not found"
