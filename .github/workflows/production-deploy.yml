@@ -50,39 +50,73 @@ jobs:
             cd ToeicBoost_BE
           fi
           
-          # Verify files exist
-          if [ ! -f "docker-compose.production.yml" ]; then
-            echo "Creating docker-compose.production.yml..."
-            cat > docker-compose.production.yml << 'EOF'
-          version: "3.8"
+          # Always create fresh docker-compose.production.yml
+          echo "Creating docker-compose.production.yml..."
+          cat > docker-compose.production.yml << 'EOF'
+version: "3.8"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: toeic-api-prod
+    ports:
+      - "3001:3001"
+    env_file:
+      - .env.production
+    restart: unless-stopped
+    networks:
+      - toeic-network
+    mem_limit: 512m
+
+networks:
+  toeic-network:
+    driver: bridge
+EOF
           
-          services:
-            api:
-              build:
-                context: .
-                dockerfile: Dockerfile
-              container_name: toeic-api-prod
-              ports:
-                - "3001:3001"
-              env_file:
-                - .env.production
-              restart: unless-stopped
-              networks:
-                - toeic-network
-              mem_limit: 512m
-          
-          networks:
-            toeic-network:
-              driver: bridge
-          EOF
-          fi
+          echo "✅ docker-compose.production.yml created"
+          cat docker-compose.production.yml
           
           # Build and start
           echo "Building and starting services..."
-          docker-compose -f docker-compose.production.yml up -d --build
+          docker-compose -f docker-compose.production.yml up -d --build --force-recreate
           
           # Wait and check
-          sleep 15
+          echo "Waiting for services to start..."
+          sleep 20
+          
+          echo "Checking container status..."
           docker-compose -f docker-compose.production.yml ps
+          
+          echo "Checking if container is running..."
+          if docker ps | grep -q toeic-api-prod; then
+            echo "✅ Container is running"
+            
+            # Test API endpoints
+            echo "Testing API endpoints..."
+            sleep 5
+            
+            echo "1. Health check:"
+            curl -s http://localhost:3001/health || echo "❌ Health check failed"
+            
+            echo ""
+            echo "2. API root:"
+            curl -s http://localhost:3001/api/v1/ || echo "❌ API root failed"
+            
+            echo ""
+            echo "3. API docs:"
+            curl -s -I http://localhost:3001/api/v1/docs | head -1 || echo "❌ API docs failed"
+            
+            echo ""
+            echo "4. Container logs (last 10 lines):"
+            docker logs --tail 10 toeic-api-prod
+            
+          else
+            echo "❌ Container failed to start"
+            echo "Docker logs:"
+            docker-compose -f docker-compose.production.yml logs
+            exit 1
+          fi
           
           echo "✅ Deployment completed!"
