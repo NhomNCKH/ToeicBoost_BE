@@ -3,8 +3,8 @@ version: '3.8'
 services:
   # Main API Application - Production optimized
   api:
-    image: ${DOCKER_REGISTRY:-your-registry}/toeic-ai:${IMAGE_TAG:-latest}
-    container_name: toeic_ai_api_prod
+    image: ${DOCKER_REGISTRY:-ghcr.io/nhomnckh}/toeicboost_be:${IMAGE_TAG:-latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-toeicai}_api_prod
     restart: unless-stopped
     ports:
       - '3001:3001'
