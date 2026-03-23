@@ -1,0 +1,16 @@
+export enum PermissionCode {
+  USERS_READ = 'users.read',
+  USERS_MANAGE = 'users.manage',
+  ROLES_READ = 'roles.read',
+  ROLES_MANAGE = 'roles.manage',
+  PERMISSIONS_READ = 'permissions.read',
+  PERMISSIONS_MANAGE = 'permissions.manage',
+  QUESTIONS_MANAGE = 'questions.manage',
+  QUESTIONS_PUBLISH = 'questions.publish',
+  QUESTIONS_IMPORT = 'questions.import',
+  EXAM_TEMPLATES_MANAGE = 'exam_templates.manage',
+  CREDENTIALS_MANAGE = 'credentials.manage',
+  DASHBOARD_VIEW = 'dashboard.view',
+  SETTINGS_MANAGE = 'settings.manage',
+  AUDIT_VIEW = 'audit.view',
+}

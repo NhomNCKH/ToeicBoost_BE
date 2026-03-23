@@ -1,6 +1,8 @@
-import { Column, Entity, Index } from 'typeorm';
-import { UserRole, UserStatus } from '../../../common/enums/user.enum';
+import { Column, Entity, Index, OneToMany } from 'typeorm';
+import { UserStatus } from '../../../common/constants/user.enum';
 import { BaseEntity } from '../../../database/entities/base.entity';
+import { UserRoleAssignment } from '../../admin/rbac/entities/user-role.entity';
+import { ExamAttempt } from '../../assessment/exam-attempt/entities/exam-attempt.entity';
 
 @Entity('users')
 export class User extends BaseEntity {
@@ -18,16 +20,6 @@ export class User extends BaseEntity {
 
   @Column({ name: 'name', type: 'varchar', length: 100 })
   name: string;
-
-  @Index('idx_users_role')
-  @Column({
-    name: 'role',
-    type: 'enum',
-    enum: UserRole,
-    enumName: 'user_role',
-    default: UserRole.LEARNER,
-  })
-  role: UserRole;
 
   @Index('idx_users_status')
   @Column({
@@ -60,4 +52,10 @@ export class User extends BaseEntity {
 
   @Column({ name: 'last_login_at', type: 'timestamptz', nullable: true })
   lastLoginAt: Date | null;
+
+  @OneToMany(() => UserRoleAssignment, (userRole) => userRole.user)
+  userRoles: UserRoleAssignment[];
+
+  @OneToMany(() => ExamAttempt, (examAttempt) => examAttempt.user)
+  examAttempts: ExamAttempt[];
 }
