@@ -91,6 +91,10 @@ jobs:
           if docker ps | grep -q toeic-api-prod; then
             echo "✅ Container is running"
             
+            # Run database migrations
+            echo "Running database migrations..."
+            docker exec toeic-api-prod npm run migration:run || echo "⚠️ Migration failed or no migrations to run"
+            
             # Test API endpoints
             echo "Testing API endpoints..."
             sleep 5
