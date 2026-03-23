@@ -34,16 +34,27 @@ async function bootstrap() {
     }),
   );
 
-  app.use(compression());
-  app.use(helmet());
+    app.use(compression());
 
-  app.enableCors({
-    origin:
-      configService.get<string>('NODE_ENV') === 'production'
-        ? ['https://toeic-ai.com', 'https://verify.toeic-ai.com']
-        : true,
-    credentials: true,
-  });
+    // Configure helmet with relaxed settings for development
+    app.use(
+      helmet({
+        contentSecurityPolicy: false,
+        crossOriginEmbedderPolicy: false,
+      }),
+    );
+
+    // Enable CORS for all origins in development, specific origins in production
+    app.enableCors({
+      origin: [
+        'http://localhost:3000',
+        'https://toeic-boost-fe.vercel.app',
+        'https://*.vercel.app',
+      ],
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    });
 
   if (configService.get<string>('NODE_ENV') !== 'production') {
     const swaggerConfig = new DocumentBuilder()

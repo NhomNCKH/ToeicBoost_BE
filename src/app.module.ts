@@ -9,6 +9,7 @@ import { CustomTypeOrmLogger } from './common/logger/typeorm.logger';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { PermissionsGuard } from './common/guards/permissions.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
@@ -16,6 +17,8 @@ import { SecurityModule } from './modules/security/security.module';
 import { AppController } from './app.controller';
 import { S3StorageModule } from './modules/s3/s3-storage.module';
 import { MediaModule } from '@modules/media/media.module';
+import { AdminModule } from '@modules/admin/admin.module';
+import { AssessmentModule } from '@modules/assessment/assessment.module';
 
 @Module({
   imports: [
@@ -64,6 +67,10 @@ import { MediaModule } from '@modules/media/media.module';
     SecurityModule,
 
     MediaModule,
+
+    AdminModule,
+
+    AssessmentModule,
   ],
   controllers: [AppController],
   providers: [
@@ -71,6 +78,7 @@ import { MediaModule } from '@modules/media/media.module';
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
     { provide: APP_INTERCEPTOR, useClass: TransformInterceptor },

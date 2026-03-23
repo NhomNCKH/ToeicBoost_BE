@@ -6,4 +6,3 @@ import { S3StorageService } from './s3-storage.service';
   exports: [S3StorageService],
 })
 export class S3StorageModule {}
-

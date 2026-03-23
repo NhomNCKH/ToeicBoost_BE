@@ -1,9 +1,9 @@
-import { UserRole } from '../enums/user.enum';
-
 export interface IJwtPayload {
   sub: string;
   email: string;
-  role: UserRole;
+  role: string;
+  roles: string[];
+  permissions?: string[];
   iat?: number;
   exp?: number;
 }

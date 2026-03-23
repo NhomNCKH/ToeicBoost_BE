@@ -2,7 +2,7 @@ import { DataSource } from 'typeorm';
 import * as dotenv from 'dotenv';
 import * as path from 'node:path';
 import { getDatabaseConfig } from '../config/database.config';
-import { CreateAuthTables1742238000000 } from './migrations/1742238000000-CreateAuthTables';
+import { CreateExamAttemptTables1742860000000 } from './migrations/1742860000000-CreateExamAttemptTables';
 
 dotenv.config();
 
@@ -18,7 +18,7 @@ const dataSource = new DataSource({
   ...dbConfig,
   entities: [path.join(__dirname, '../**/*.entity.{ts,js}')],
   synchronize: false,
-  migrations: [CreateAuthTables1742238000000],
+  migrations: [CreateExamAttemptTables1742860000000],
   migrationsTableName: 'migrations',
 });
 
