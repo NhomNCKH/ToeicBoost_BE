@@ -20,15 +20,12 @@ export class MediaController {
   @Post('upload')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Tạo pre-signed PUT URL để FE upload thẳng lên S3',
+    summary: 'Tạo URL pre-signed PUT để FE tải file trực tiếp lên S3',
     description:
-      'Backend trả về signedPutUrl và s3Key. FE dùng signedPutUrl để PUT file trực tiếp lên S3. Sau đó module riêng sẽ cập nhật DB với s3Key.',
+      'Backend trả về signedPutUrl và s3Key. FE dùng signedPutUrl để PUT file trực tiếp lên S3, sau đó gọi API khác để cập nhật DB với s3Key.',
   })
   @ApiBody({ type: PresignPutDto })
-  presignPut(
-    @CurrentUser('sub') userId: string,
-    @Body() dto: PresignPutDto,
-  ) {
+  presignPut(@CurrentUser('sub') userId: string, @Body() dto: PresignPutDto) {
     return this.mediaService.presignPutImage(
       userId,
       dto.category ?? 'image',
@@ -41,15 +38,14 @@ export class MediaController {
   @Post('presign-get')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Tạo pre-signed GET URL để FE xem ảnh',
+    summary: 'Tạo URL pre-signed GET để FE xem file',
     description:
-      'Dùng khi bucket/object không public. FE mở bằng signedGetUrl để xem ảnh.',
+      'Dùng khi bucket hoặc object không public. FE mở bằng signedGetUrl để xem file.',
   })
   @ApiBody({ type: PresignGetDto })
   @ApiResponse({ status: 200, description: 'Tạo signed GET thành công' })
   presignGet(@CurrentUser('sub') userId: string, @Body() dto: PresignGetDto) {
-    // userId hiện không dùng trong validate prefix; giữ để mở rộng sau
+    // userId hiện chưa dùng trong validate prefix; giữ để mở rộng sau
     return this.mediaService.presignGetImage(dto.s3Key, dto.expiresInSeconds);
   }
 }
-

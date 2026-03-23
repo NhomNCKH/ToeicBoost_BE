@@ -1,7 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-} from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { extname } from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import { S3StorageService } from '../s3/s3-storage.service';
@@ -82,4 +79,3 @@ export class MediaService {
     return null;
   }
 }
-

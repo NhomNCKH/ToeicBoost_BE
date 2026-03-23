@@ -9,7 +9,7 @@ export class RegisterSuccessDto {
   @ApiProperty({ example: true })
   success: boolean;
 
-  @ApiProperty({ example: 'Account created successfully' })
+  @ApiProperty({ example: 'Tạo tài khoản thành công' })
   message: string;
 
   @ApiProperty({ type: RegisterDataDto })
@@ -29,6 +29,12 @@ export class AuthUserDto {
   @ApiProperty({ example: 'learner' })
   role: string;
 
+  @ApiProperty({ example: ['learner'] })
+  roles: string[];
+
+  @ApiProperty({ example: ['dashboard.view'] })
+  permissions: string[];
+
   @ApiProperty({ example: 'pending_verification' })
   status: string;
 }
@@ -45,7 +51,7 @@ export class LoginDataDto {
 
   @ApiProperty({
     example: 900,
-    description: 'Thời gian hết hạn access token (giây)',
+    description: 'Thời gian hết hạn của access token tính theo giây',
   })
   expiresIn: number;
 }
@@ -54,7 +60,7 @@ export class LoginSuccessDto {
   @ApiProperty({ example: true })
   success: boolean;
 
-  @ApiProperty({ example: 'Login successful' })
+  @ApiProperty({ example: 'Đăng nhập thành công' })
   message: string;
 
   @ApiProperty({ type: LoginDataDto })
@@ -65,11 +71,11 @@ export class RefreshSuccessDto {
   @ApiProperty({ example: true })
   success: boolean;
 
-  @ApiProperty({ example: 'Token refreshed successfully' })
+  @ApiProperty({ example: 'Làm mới token thành công' })
   message: string;
 
   @ApiProperty({
-    description: 'Token mới (không bao gồm thông tin user)',
+    description: 'Bộ access token và refresh token mới',
     example: {
       accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
       refreshToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
@@ -87,7 +93,7 @@ export class LogoutSuccessDto {
   @ApiProperty({ example: true })
   success: boolean;
 
-  @ApiProperty({ example: 'Logout successful' })
+  @ApiProperty({ example: 'Đăng xuất thành công' })
   message: string;
 }
 
@@ -95,7 +101,7 @@ export class MeSuccessDto {
   @ApiProperty({ example: true })
   success: boolean;
 
-  @ApiProperty({ example: 'Current user profile' })
+  @ApiProperty({ example: 'Thông tin người dùng hiện tại' })
   message: string;
 
   @ApiProperty({
@@ -103,6 +109,8 @@ export class MeSuccessDto {
       sub: '77abd19e-bebe-4b90-bba4-edd4f300c17f',
       email: 'user@gmail.com',
       role: 'learner',
+      roles: ['learner'],
+      permissions: ['dashboard.view'],
       iat: 1773769909,
       exp: 1773770809,
     },
@@ -117,7 +125,7 @@ export class AuthErrorDto {
   @ApiProperty({ example: 'ConflictException' })
   error: string;
 
-  @ApiProperty({ example: 'Email already registered' })
+  @ApiProperty({ example: 'Email đã được đăng ký' })
   message: string | string[];
 
   @ApiProperty({ example: '2026-03-17T17:50:59.037Z' })

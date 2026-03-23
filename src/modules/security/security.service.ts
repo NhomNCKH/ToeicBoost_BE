@@ -15,6 +15,7 @@ import type { Express } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { Repository } from 'typeorm';
 import { APP_CONSTANTS } from '../../common/constants/app.constant';
+import { UserRole } from '../../common/constants/user.enum';
 import {
   IJwtPayload,
   ITokenPair,
@@ -27,6 +28,14 @@ import { RegisterDto } from './dto/register.dto';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { User } from './entities/user.entity';
 import { IAuthRequestMeta } from './interfaces/auth-request.interface';
+import { Role } from '../admin/rbac/entities/role.entity';
+import { UserRoleAssignment } from '../admin/rbac/entities/user-role.entity';
+
+interface AccessContext {
+  primaryRole: string;
+  roles: string[];
+  permissions: string[];
+}
 
 @Injectable()
 export class SecurityService {
@@ -35,6 +44,10 @@ export class SecurityService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepository: Repository<RefreshToken>,
+    @InjectRepository(Role)
+    private readonly roleRepository: Repository<Role>,
+    @InjectRepository(UserRoleAssignment)
+    private readonly userRoleRepository: Repository<UserRoleAssignment>,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly s3StorageService: S3StorageService,
@@ -53,6 +66,8 @@ export class SecurityService {
       });
     }
 
+    const learnerRole = await this.getRoleByCode(UserRole.LEARNER);
+
     const user = this.userRepository.create({
       name: dto.name,
       email: dto.email,
@@ -60,6 +75,13 @@ export class SecurityService {
     });
 
     const createdUser = await this.userRepository.save(user);
+
+    await this.userRoleRepository.save(
+      this.userRoleRepository.create({
+        userId: createdUser.id,
+        roleId: learnerRole.id,
+      }),
+    );
 
     return {
       success: true,
@@ -71,8 +93,8 @@ export class SecurityService {
   }
 
   async login(dto: LoginDto, meta: IAuthRequestMeta) {
-    const user = await this.userRepository.findOne({
-      where: { email: dto.email },
+    const user = await this.loadUserWithAccessContext({
+      email: dto.email,
     });
 
     if (!user || !user.passwordHash) {
@@ -100,7 +122,8 @@ export class SecurityService {
     user.lastLoginAt = new Date();
     await this.userRepository.save(user);
 
-    const tokens = await this.generateTokenPair(user, meta);
+    const accessContext = this.buildAccessContext(user);
+    const tokens = await this.generateTokenPair(user, accessContext, meta);
 
     return {
       success: true,
@@ -110,7 +133,9 @@ export class SecurityService {
           id: user.id,
           name: user.name,
           email: user.email,
-          role: user.role,
+          role: accessContext.primaryRole,
+          roles: accessContext.roles,
+          permissions: accessContext.permissions,
           status: user.status,
         },
         ...tokens,
@@ -144,9 +169,7 @@ export class SecurityService {
       throw new UnauthorizedException('Refresh token is expired or revoked');
     }
 
-    const user = await this.userRepository.findOne({
-      where: { id: payload.sub },
-    });
+    const user = await this.loadUserWithAccessContext({ id: payload.sub });
 
     if (!user) {
       throw new UnauthorizedException('User not found');
@@ -155,7 +178,8 @@ export class SecurityService {
     refreshToken.revokedAt = new Date();
     await this.refreshTokenRepository.save(refreshToken);
 
-    const tokens = await this.generateTokenPair(user, meta);
+    const accessContext = this.buildAccessContext(user);
+    const tokens = await this.generateTokenPair(user, accessContext, meta);
 
     return {
       success: true,
@@ -199,7 +223,10 @@ export class SecurityService {
       throw new BadRequestException('Missing file');
     }
 
-    if (!file.mimetype?.startsWith('image/')) {
+    const mimeType = String(file.mimetype ?? '');
+    const originalName = String(file.originalname ?? '');
+
+    if (!mimeType.startsWith('image/')) {
       throw new BadRequestException('Invalid file type. Expect image/*');
     }
 
@@ -208,7 +235,7 @@ export class SecurityService {
     }
 
     const extension =
-      this.getExtensionFromMime(file.mimetype) ?? extname(file.originalname);
+      this.getExtensionFromMime(mimeType) ?? extname(originalName);
 
     if (!extension) {
       throw new BadRequestException('Cannot determine file extension');
@@ -282,38 +309,79 @@ export class SecurityService {
     };
   }
 
-  private getExtensionFromMime(mime: string): string | null {
-    const normalized = mime.toLowerCase();
-    if (normalized === 'image/jpeg') return '.jpg';
-    if (normalized === 'image/png') return '.png';
-    if (normalized === 'image/gif') return '.gif';
-    if (normalized === 'image/webp') return '.webp';
-    if (normalized === 'image/bmp') return '.bmp';
-    if (normalized === 'image/svg+xml') return '.svg';
-    return null;
+  private async loadUserWithAccessContext(
+    where: Partial<Pick<User, 'id' | 'email'>>,
+  ): Promise<User | null> {
+    return this.userRepository.findOne({
+      where,
+      relations: {
+        userRoles: {
+          role: {
+            rolePermissions: {
+              permission: true,
+            },
+          },
+        },
+      },
+    });
   }
 
-  private async handleFailedLogin(user: User) {
-    user.failedLoginAttempts += 1;
+  private buildAccessContext(user: User): AccessContext {
+    const roleCodes = Array.from(
+      new Set(
+        (user.userRoles ?? [])
+          .map((userRole) => userRole.role?.code)
+          .filter((code): code is string => Boolean(code)),
+      ),
+    );
 
-    if (user.failedLoginAttempts >= APP_CONSTANTS.MAX_LOGIN_ATTEMPTS) {
-      user.lockedUntil = new Date(
-        Date.now() + APP_CONSTANTS.LOGIN_LOCK_MINUTES * 60 * 1000,
-      );
-      user.failedLoginAttempts = 0;
+    const permissions = Array.from(
+      new Set(
+        (user.userRoles ?? []).flatMap((userRole) =>
+          (userRole.role?.rolePermissions ?? [])
+            .map((rolePermission) => rolePermission.permission?.code)
+            .filter((code): code is string => Boolean(code)),
+        ),
+      ),
+    );
+
+    const normalizedRoles =
+      roleCodes.length > 0 ? roleCodes : [UserRole.LEARNER];
+    const primaryRole = this.selectPrimaryRole(normalizedRoles);
+
+    return {
+      primaryRole,
+      roles: normalizedRoles,
+      permissions,
+    };
+  }
+
+  private selectPrimaryRole(roles: string[]): string {
+    if (roles.includes(UserRole.SUPERADMIN)) return UserRole.SUPERADMIN;
+    if (roles.includes(UserRole.ADMIN)) return UserRole.ADMIN;
+    return UserRole.LEARNER;
+  }
+
+  private async getRoleByCode(code: UserRole): Promise<Role> {
+    const role = await this.roleRepository.findOne({ where: { code } });
+    if (!role) {
+      throw new NotFoundException(`Role not found: ${code}`);
     }
 
-    await this.userRepository.save(user);
+    return role;
   }
 
   private async generateTokenPair(
     user: User,
+    accessContext: AccessContext,
     meta: IAuthRequestMeta,
   ): Promise<ITokenPair> {
     const payload: IJwtPayload = {
       sub: user.id,
       email: user.email,
-      role: user.role,
+      role: accessContext.primaryRole,
+      roles: accessContext.roles,
+      permissions: accessContext.permissions,
     };
 
     const accessSecret =
@@ -383,5 +451,29 @@ export class SecurityService {
       default:
         throw new BadRequestException(`Unsupported duration unit: ${unit}`);
     }
+  }
+
+  private async handleFailedLogin(user: User) {
+    user.failedLoginAttempts += 1;
+
+    if (user.failedLoginAttempts >= APP_CONSTANTS.MAX_LOGIN_ATTEMPTS) {
+      user.lockedUntil = new Date(
+        Date.now() + APP_CONSTANTS.LOGIN_LOCK_MINUTES * 60 * 1000,
+      );
+      user.failedLoginAttempts = 0;
+    }
+
+    await this.userRepository.save(user);
+  }
+
+  private getExtensionFromMime(mime: string): string | null {
+    const normalized = mime.toLowerCase();
+    if (normalized === 'image/jpeg') return '.jpg';
+    if (normalized === 'image/png') return '.png';
+    if (normalized === 'image/gif') return '.gif';
+    if (normalized === 'image/webp') return '.webp';
+    if (normalized === 'image/bmp') return '.bmp';
+    if (normalized === 'image/svg+xml') return '.svg';
+    return null;
   }
 }

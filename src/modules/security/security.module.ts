@@ -15,6 +15,10 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { SecurityController } from './security.controller';
 import { SecurityService } from './security.service';
 import { S3StorageModule } from '../s3/s3-storage.module';
+import { Permission } from '../admin/rbac/entities/permission.entity';
+import { Role } from '../admin/rbac/entities/role.entity';
+import { RolePermission } from '../admin/rbac/entities/role-permission.entity';
+import { UserRoleAssignment } from '../admin/rbac/entities/user-role.entity';
 
 @Module({
   imports: [
@@ -26,7 +30,14 @@ import { S3StorageModule } from '../s3/s3-storage.module';
         secret: configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
       }),
     }),
-    TypeOrmModule.forFeature([User, RefreshToken]),
+    TypeOrmModule.forFeature([
+      User,
+      RefreshToken,
+      Role,
+      UserRoleAssignment,
+      Permission,
+      RolePermission,
+    ]),
     S3StorageModule,
   ],
   controllers: [SecurityController],

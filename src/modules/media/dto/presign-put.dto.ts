@@ -43,4 +43,3 @@ export class PresignPutDto {
   @Max(3600)
   expiresInSeconds?: number;
 }
-
