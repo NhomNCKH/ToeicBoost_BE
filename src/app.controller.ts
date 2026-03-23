@@ -8,12 +8,12 @@ export class AppController {
   @Public()
   @Get()
   @ApiOperation({
-    summary: 'Health check endpoint',
-    description: 'Simple health check to verify API is running',
+    summary: 'Kiểm tra trạng thái API',
+    description: 'Kiểm tra nhanh để xác nhận API đang hoạt động',
   })
   @ApiResponse({
     status: 200,
-    description: 'API is healthy',
+    description: 'API đang hoạt động bình thường',
     schema: {
       type: 'object',
       properties: {
@@ -36,12 +36,12 @@ export class AppController {
   @Public()
   @Get('health')
   @ApiOperation({
-    summary: 'Detailed health check',
-    description: 'Detailed health check with system information',
+    summary: 'Kiểm tra sức khỏe hệ thống chi tiết',
+    description: 'Trả về thông tin chi tiết về trạng thái hệ thống và bộ nhớ',
   })
   @ApiResponse({
     status: 200,
-    description: 'Detailed health information',
+    description: 'Thông tin sức khỏe hệ thống chi tiết',
     schema: {
       type: 'object',
       properties: {

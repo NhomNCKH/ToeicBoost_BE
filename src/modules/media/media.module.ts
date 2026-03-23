@@ -9,4 +9,3 @@ import { MediaService } from './media.service';
   providers: [MediaService],
 })
 export class MediaModule {}
-

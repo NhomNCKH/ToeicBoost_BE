@@ -5,8 +5,9 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { Request } from 'express';
 import { ROLES_KEY } from '../decorators/roles.decorator';
-import { UserRole } from '../enums/user.enum';
+import { UserRole } from '../constants/user.enum';
 import { IJwtPayload } from '../interfaces/jwt-payload.interface';
 
 interface RequestWithUser extends Request {
@@ -18,7 +19,7 @@ export class RolesGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const requiredRoles = this.reflector.getAllAndOverride<UserRole[]>(
+    const requiredRoles = this.reflector.getAllAndOverride<string[]>(
       ROLES_KEY,
       [context.getHandler(), context.getClass()],
     );
@@ -34,7 +35,13 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException('Access denied');
     }
 
-    const hasRole = requiredRoles.some((role: UserRole) => user.role === role);
+    const userRoles = new Set(user.roles?.length ? user.roles : [user.role]);
+
+    if (userRoles.has(UserRole.SUPERADMIN)) {
+      return true;
+    }
+
+    const hasRole = requiredRoles.some((role: string) => userRoles.has(role));
 
     if (!hasRole) {
       throw new ForbiddenException(

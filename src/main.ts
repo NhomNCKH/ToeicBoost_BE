@@ -56,7 +56,7 @@ async function bootstrap() {
       origin: [
         'http://localhost:3000',
         'https://toeic-boost-fe.vercel.app',
-        'https://*.vercel.app'
+        'https://*.vercel.app',
       ],
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],

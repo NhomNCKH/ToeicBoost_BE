@@ -9,6 +9,7 @@ import {
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -17,11 +18,12 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { Request } from 'express';
-import type { Express } from 'express';
+import type { Express, Request } from 'express';
+import { memoryStorage } from 'multer';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { IJwtPayload } from '../../common/interfaces/jwt-payload.interface';
+import { AttachAvatarFromS3Dto } from './dto/attach-avatar-from-s3.dto';
 import {
   AuthErrorDto,
   LoginSuccessDto,
@@ -30,16 +32,13 @@ import {
   RefreshSuccessDto,
   RegisterSuccessDto,
 } from './dto/auth-swagger-response.dto';
-import { AttachAvatarFromS3Dto } from './dto/attach-avatar-from-s3.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
 import { IAuthRequestMeta } from './interfaces/auth-request.interface';
 import { SecurityService } from './security.service';
-import { FileInterceptor } from '@nestjs/platform-express';
-import { memoryStorage } from 'multer';
 
-@ApiTags('Authentication')
+@ApiTags('Xác thực')
 @ApiBearerAuth()
 @Controller('auth')
 export class SecurityController {
@@ -51,7 +50,7 @@ export class SecurityController {
   @ApiOperation({
     summary: 'Đăng ký tài khoản mới',
     description:
-      'Tạo người dùng mới với email duy nhất. Hệ thống tự hash password bằng bcrypt trước khi lưu DB.',
+      'Tạo tài khoản học viên mới với email duy nhất. Mật khẩu sẽ được mã hóa trước khi lưu vào cơ sở dữ liệu.',
   })
   @ApiBody({ type: RegisterDto })
   @ApiResponse({
@@ -61,12 +60,12 @@ export class SecurityController {
   })
   @ApiResponse({
     status: 400,
-    description: 'Invalid input data',
+    description: 'Dữ liệu đầu vào không hợp lệ',
     type: AuthErrorDto,
   })
   @ApiResponse({
     status: 409,
-    description: 'Email already exists',
+    description: 'Email đã tồn tại trong hệ thống',
     type: AuthErrorDto,
   })
   register(@Body() dto: RegisterDto) {
@@ -77,9 +76,9 @@ export class SecurityController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Đăng nhập bằng email/password',
+    summary: 'Đăng nhập bằng email và mật khẩu',
     description:
-      'Xác thực thông tin đăng nhập, khóa tạm thời khi nhập sai nhiều lần, trả về access token + refresh token.',
+      'Xác thực thông tin đăng nhập, kiểm tra trạng thái khóa tạm thời và trả về access token cùng refresh token.',
   })
   @ApiBody({ type: LoginDto })
   @ApiResponse({
@@ -89,17 +88,17 @@ export class SecurityController {
   })
   @ApiResponse({
     status: 400,
-    description: 'Invalid input data',
+    description: 'Dữ liệu đầu vào không hợp lệ',
     type: AuthErrorDto,
   })
   @ApiResponse({
     status: 401,
-    description: 'Email or password is incorrect',
+    description: 'Email hoặc mật khẩu không chính xác',
     type: AuthErrorDto,
   })
   @ApiResponse({
     status: 403,
-    description: 'Account temporarily locked',
+    description: 'Tài khoản đang bị khóa tạm thời',
     type: AuthErrorDto,
   })
   login(@Body() dto: LoginDto, @Req() req: Request) {
@@ -110,9 +109,9 @@ export class SecurityController {
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Làm mới token',
+    summary: 'Làm mới bộ token',
     description:
-      'Dùng refresh token hợp lệ để cấp access token mới và rotate refresh token cũ.',
+      'Dùng refresh token hợp lệ để cấp access token mới và xoay vòng refresh token hiện tại.',
   })
   @ApiBody({ type: RefreshTokenDto })
   @ApiResponse({
@@ -122,7 +121,7 @@ export class SecurityController {
   })
   @ApiResponse({
     status: 401,
-    description: 'Refresh token không hợp lệ/hết hạn/đã thu hồi',
+    description: 'Refresh token không hợp lệ, đã hết hạn hoặc đã bị thu hồi',
     type: AuthErrorDto,
   })
   refreshToken(@Body() dto: RefreshTokenDto, @Req() req: Request) {
@@ -134,7 +133,7 @@ export class SecurityController {
   @ApiOperation({
     summary: 'Đăng xuất',
     description:
-      'Thu hồi refresh token hiện tại để vô hiệu hóa phiên đăng nhập ở client.',
+      'Thu hồi refresh token hiện tại để vô hiệu hóa phiên đăng nhập trên thiết bị của người dùng.',
   })
   @ApiBody({ type: RefreshTokenDto })
   @ApiResponse({
@@ -149,7 +148,7 @@ export class SecurityController {
   })
   @ApiResponse({
     status: 401,
-    description: 'Thiếu hoặc sai access token',
+    description: 'Thiếu access token hoặc access token không hợp lệ',
     type: AuthErrorDto,
   })
   logout(@Body() dto: RefreshTokenDto) {
@@ -159,9 +158,9 @@ export class SecurityController {
   @Get('me')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Lấy thông tin user hiện tại',
+    summary: 'Lấy thông tin người dùng hiện tại',
     description:
-      'Trả về payload người dùng được giải mã từ access token (sub, email, role, iat, exp).',
+      'Trả về thông tin người dùng được giải mã từ access token hiện tại.',
   })
   @ApiResponse({
     status: 200,
@@ -170,7 +169,7 @@ export class SecurityController {
   })
   @ApiResponse({
     status: 401,
-    description: 'Thiếu hoặc sai access token',
+    description: 'Thiếu access token hoặc access token không hợp lệ',
     type: AuthErrorDto,
   })
   me(@CurrentUser() user: IJwtPayload) {
@@ -180,9 +179,9 @@ export class SecurityController {
   @Post('me/avatar')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
-    summary: 'Upload avatar lên S3',
+    summary: 'Tải avatar lên S3',
     description:
-      'Nhận file ảnh (multipart/form-data), upload lên S3 và lưu URL vào DB (users.avatar_url).',
+      'Nhận file ảnh dạng multipart/form-data, tải lên S3 và cập nhật đường dẫn avatar của người dùng trong cơ sở dữ liệu.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -199,7 +198,7 @@ export class SecurityController {
   })
   @ApiResponse({
     status: 201,
-    description: 'Upload thành công',
+    description: 'Tải avatar thành công',
     schema: {
       type: 'object',
       properties: {
@@ -211,12 +210,13 @@ export class SecurityController {
   @UseInterceptors(
     FileInterceptor('file', {
       storage: memoryStorage(),
-      limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+      limits: { fileSize: 5 * 1024 * 1024 },
       fileFilter: (req, file, cb) => {
         if (file.mimetype?.startsWith('image/')) {
           cb(null, true);
           return;
         }
+
         cb(null, false);
       },
     }),
@@ -231,8 +231,9 @@ export class SecurityController {
   @Get('me/avatar')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Lấy avatar của user hiện tại',
-    description: 'Trả về avatarUrl đã lưu trong DB.',
+    summary: 'Lấy avatar của người dùng hiện tại',
+    description:
+      'Trả về `avatarUrl` đã lưu cho người dùng hiện tại trong cơ sở dữ liệu.',
   })
   getAvatar(@CurrentUser('sub') userId: string) {
     return this.securityService.getAvatar(userId);
@@ -241,9 +242,9 @@ export class SecurityController {
   @Post('me/avatar/s3')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Gắn avatar từ s3Key (dành cho luồng pre-signed PUT)',
+    summary: 'Gắn avatar từ s3Key đã tải lên trước',
     description:
-      'FE PUT ảnh trực tiếp lên S3 bằng pre-signed PUT xong sẽ gọi endpoint này để backend update users.avatar_url.',
+      'Dùng cho luồng frontend tải ảnh trực tiếp lên S3 bằng pre-signed URL, sau đó gọi endpoint này để cập nhật avatar cho người dùng.',
   })
   @ApiBody({ type: AttachAvatarFromS3Dto })
   @ApiResponse({

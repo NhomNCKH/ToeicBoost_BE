@@ -22,4 +22,3 @@ export class PresignGetDto {
   @Max(3600)
   expiresInSeconds?: number;
 }
-
