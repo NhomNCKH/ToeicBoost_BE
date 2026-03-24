@@ -9,11 +9,11 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { extname } from 'node:path';
 import type { Express } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { APP_CONSTANTS } from '../../common/constants/app.constant';
 import { UserRole } from '../../common/constants/user.enum';
 import {
@@ -51,6 +51,7 @@ export class SecurityService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly s3StorageService: S3StorageService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -157,35 +158,42 @@ export class SecurityService {
     }
 
     const hashedToken = this.hashToken(dto.refreshToken);
-    const refreshToken = await this.refreshTokenRepository.findOne({
-      where: { tokenHash: hashedToken },
+
+    // Dùng transaction + pessimistic write lock để tránh race condition
+    // khi nhiều request đồng thời dùng cùng refresh token (PostgreSQL 23505)
+    return this.dataSource.transaction(async (manager) => {
+      const refreshToken = await manager.findOne(RefreshToken, {
+        where: { tokenHash: hashedToken },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (
+        !refreshToken ||
+        refreshToken.revokedAt ||
+        refreshToken.expiresAt <= new Date()
+      ) {
+        throw new UnauthorizedException('Refresh token is expired or revoked');
+      }
+
+      const user = await this.loadUserWithAccessContext({ id: payload.sub });
+
+      if (!user) {
+        throw new UnauthorizedException('User not found');
+      }
+
+      // Revoke token cũ trong cùng transaction
+      refreshToken.revokedAt = new Date();
+      await manager.save(refreshToken);
+
+      const accessContext = this.buildAccessContext(user);
+      const tokens = await this.generateTokenPair(user, accessContext, meta, manager);
+
+      return {
+        success: true,
+        message: 'Token refreshed successfully',
+        data: tokens,
+      };
     });
-
-    if (
-      !refreshToken ||
-      refreshToken.revokedAt ||
-      refreshToken.expiresAt <= new Date()
-    ) {
-      throw new UnauthorizedException('Refresh token is expired or revoked');
-    }
-
-    const user = await this.loadUserWithAccessContext({ id: payload.sub });
-
-    if (!user) {
-      throw new UnauthorizedException('User not found');
-    }
-
-    refreshToken.revokedAt = new Date();
-    await this.refreshTokenRepository.save(refreshToken);
-
-    const accessContext = this.buildAccessContext(user);
-    const tokens = await this.generateTokenPair(user, accessContext, meta);
-
-    return {
-      success: true,
-      message: 'Token refreshed successfully',
-      data: tokens,
-    };
   }
 
   async logout(dto: RefreshTokenDto) {
@@ -375,7 +383,12 @@ export class SecurityService {
     user: User,
     accessContext: AccessContext,
     meta: IAuthRequestMeta,
+    manager?: import('typeorm').EntityManager,
   ): Promise<ITokenPair> {
+    const repo = manager
+      ? manager.getRepository(RefreshToken)
+      : this.refreshTokenRepository;
+
     const payload: IJwtPayload = {
       sub: user.id,
       email: user.email,
@@ -397,25 +410,29 @@ export class SecurityService {
     const accessTtlSeconds = this.parseDuration(accessExpiresIn);
     const refreshTtlSeconds = this.parseDuration(refreshExpiresIn);
 
+    // jti (JWT ID) unique đảm bảo hash không bao giờ trùng dù sign đồng thời
+    const accessJti = randomBytes(16).toString('hex');
+    const refreshJti = randomBytes(16).toString('hex');
+
     const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(payload, {
-        secret: accessSecret,
-        expiresIn: accessTtlSeconds,
-      }),
-      this.jwtService.signAsync(payload, {
-        secret: refreshSecret,
-        expiresIn: refreshTtlSeconds,
-      }),
+      this.jwtService.signAsync(
+        { ...payload, jti: accessJti },
+        { secret: accessSecret, expiresIn: accessTtlSeconds },
+      ),
+      this.jwtService.signAsync(
+        { ...payload, jti: refreshJti },
+        { secret: refreshSecret, expiresIn: refreshTtlSeconds },
+      ),
     ]);
 
-    const refreshTokenEntity = this.refreshTokenRepository.create({
+    const refreshTokenEntity = repo.create({
       userId: user.id,
       tokenHash: this.hashToken(refreshToken),
       expiresAt: new Date(Date.now() + refreshTtlSeconds * 1000),
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
     });
-    await this.refreshTokenRepository.save(refreshTokenEntity);
+    await repo.save(refreshTokenEntity);
 
     return {
       accessToken,
