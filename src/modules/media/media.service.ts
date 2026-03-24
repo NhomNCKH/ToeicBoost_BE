@@ -7,15 +7,21 @@ import { S3StorageService } from '../s3/s3-storage.service';
 export class MediaService {
   constructor(private readonly s3StorageService: S3StorageService) {}
 
-  async presignPutImage(
+  async presignPutMedia(
     userId: string,
     category: string,
     contentType: string,
     fileName?: string,
     expiresInSeconds?: number,
   ) {
-    if (!contentType?.startsWith('image/')) {
-      throw new BadRequestException('Invalid contentType. Expect image/*');
+    // Hỗ trợ cả image và audio
+    const isImage = contentType?.startsWith('image/');
+    const isAudio = contentType?.startsWith('audio/');
+
+    if (!isImage && !isAudio) {
+      throw new BadRequestException(
+        'Invalid contentType. Expect image/* or audio/*',
+      );
     }
 
     const safeCategory = this.sanitizeCategory(category || 'image');
@@ -70,12 +76,19 @@ export class MediaService {
 
   private getExtensionFromMime(mime: string): string | null {
     const normalized = mime.toLowerCase();
+    // Image
     if (normalized === 'image/jpeg') return '.jpg';
     if (normalized === 'image/png') return '.png';
     if (normalized === 'image/gif') return '.gif';
     if (normalized === 'image/webp') return '.webp';
     if (normalized === 'image/bmp') return '.bmp';
     if (normalized === 'image/svg+xml') return '.svg';
+    // Audio
+    if (normalized === 'audio/mpeg') return '.mp3';
+    if (normalized === 'audio/wav') return '.wav';
+    if (normalized === 'audio/ogg') return '.ogg';
+    if (normalized === 'audio/aac') return '.m4a';
+    if (normalized === 'audio/webm') return '.webm';
     return null;
   }
 }

@@ -426,43 +426,84 @@ export class AdminExamTemplateService {
     for (const section of refreshedTemplate.sections.filter((candidate) =>
       targetParts.includes(candidate.part),
     )) {
-      const rule = refreshedTemplate.rules.find(
+      const sectionRules = refreshedTemplate.rules.filter(
         (candidate) => candidate.part === section.part,
       );
-      const targetGroupCount = rule?.groupCount ?? section.expectedGroupCount;
-      const currentItems = refreshedTemplate.items.filter(
-        (item) => item.sectionId === section.id,
-      );
-      const missingCount = Math.max(targetGroupCount - currentItems.length, 0);
 
-      if (missingCount === 0) continue;
-
-      const candidates = await this.findAutoFillCandidates(
-        section.part,
-        existingGroupIds,
-        rule?.requiredTagCodes ?? [],
-        rule?.excludedTagCodes ?? [],
-      );
-
-      const selected = this.selectCandidatesByLevelDistribution(
-        candidates,
-        missingCount,
-        rule?.levelDistribution ?? {},
-      );
-
-      for (const candidate of selected) {
-        await this.examTemplateItemRepository.save(
-          this.examTemplateItemRepository.create({
-            createdById: userId,
-            examTemplateId: templateId,
-            sectionId: section.id,
-            questionGroupId: candidate.id,
-            sourceMode: TemplateItemMode.RULE_BASED,
-            displayOrder: nextDisplayOrder++,
-            locked: false,
-          }),
+      // Nếu không có rule nào, lấy rule mặc định dựa trên cấu trúc section
+      if (sectionRules.length === 0) {
+        const candidates = await this.findAutoFillCandidates(
+          section.part,
+          existingGroupIds,
+          [],
+          [],
         );
-        existingGroupIds.add(candidate.id);
+        const selected = this.selectCandidatesByLevelDistribution(
+          candidates,
+          section.expectedGroupCount,
+          {},
+        );
+        for (const candidate of selected) {
+          await this.examTemplateItemRepository.save(
+            this.examTemplateItemRepository.create({
+              createdById: userId,
+              examTemplateId: templateId,
+              sectionId: section.id,
+              questionGroupId: candidate.id,
+              sourceMode: TemplateItemMode.RULE_BASED,
+              displayOrder: nextDisplayOrder++,
+              locked: false,
+            }),
+          );
+          existingGroupIds.add(candidate.id);
+        }
+        continue;
+      }
+
+      // Xử lý từng rule của section
+      for (const rule of sectionRules) {
+        const currentSectionItems = (await this.getTemplateDetail(templateId)).items.filter(
+          (item) => item.sectionId === section.id,
+        );
+        
+        // Với mỗi rule, ta cần lấy đủ số lượng CÂU HỎI (questionCount)
+        // chứ không phải số lượng NHÓM (groupCount)
+        // Hệ thống sẽ lấy các nhóm cho đến khi tổng số câu hỏi đạt mức yêu cầu
+        let currentRuleQuestionCount = 0;
+        const targetQuestionCount = rule.questionCount;
+
+        const candidates = await this.findAutoFillCandidates(
+          section.part,
+          existingGroupIds,
+          rule.requiredTagCodes ?? [],
+          rule.excludedTagCodes ?? [],
+        );
+
+        // Lọc theo level nếu có distribution
+        const levelMatches = this.selectCandidatesByLevelDistribution(
+          candidates,
+          candidates.length, // Lấy hết candidates để ta tự đếm số câu
+          rule.levelDistribution ?? {},
+        );
+
+        for (const candidate of levelMatches) {
+          if (currentRuleQuestionCount >= targetQuestionCount) break;
+
+          const qCount = candidate.questions?.length ?? 0;
+          await this.examTemplateItemRepository.save(
+            this.examTemplateItemRepository.create({
+              createdById: userId,
+              examTemplateId: templateId,
+              sectionId: section.id,
+              questionGroupId: candidate.id,
+              sourceMode: TemplateItemMode.RULE_BASED,
+              displayOrder: nextDisplayOrder++,
+              locked: false,
+            }),
+          );
+          existingGroupIds.add(candidate.id);
+          currentRuleQuestionCount += qCount;
+        }
       }
     }
 
@@ -707,12 +748,12 @@ export class AdminExamTemplateService {
   }
 
   private validateRules(rules: PutExamTemplateRulesDto['rules']) {
-    const seenParts = new Set<QuestionPart>();
+    // Cho phép nhiều rule cho cùng 1 Part để hỗ trợ cấu trúc phức tạp (ví dụ 10 câu Grammar, 10 câu Vocab cho Part 5)
+    // Chỉ cần đảm bảo mỗi rule có số lượng câu hỏi hợp lệ
     for (const rule of rules) {
-      if (seenParts.has(rule.part)) {
-        throw new BadRequestException(`Duplicate rule part: ${rule.part}`);
+      if (rule.questionCount <= 0) {
+        throw new BadRequestException(`Invalid questionCount for part ${rule.part}`);
       }
-      seenParts.add(rule.part);
     }
   }
 

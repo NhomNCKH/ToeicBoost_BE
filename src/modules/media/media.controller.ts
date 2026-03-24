@@ -26,9 +26,9 @@ export class MediaController {
   })
   @ApiBody({ type: PresignPutDto })
   presignPut(@CurrentUser('sub') userId: string, @Body() dto: PresignPutDto) {
-    return this.mediaService.presignPutImage(
+    return this.mediaService.presignPutMedia(
       userId,
-      dto.category ?? 'image',
+      dto.category ?? 'media',
       dto.contentType,
       dto.fileName,
       dto.expiresInSeconds,
