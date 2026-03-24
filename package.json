@@ -25,8 +25,8 @@
     "migration:show": "npm run typeorm -- migration:show"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1013.0",
-    "@aws-sdk/s3-request-presigner": "^3.1013.0",
+    "@aws-sdk/client-s3": "^3.1015.0",
+    "@aws-sdk/s3-request-presigner": "^3.1015.0",
     "@nestjs/bull": "^11.0.4",
     "@nestjs/cache-manager": "^3.1.0",
     "@nestjs/common": "^11.0.1",
