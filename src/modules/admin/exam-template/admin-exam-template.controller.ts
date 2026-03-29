@@ -41,6 +41,12 @@ export class AdminExamTemplateController {
     return this.adminExamTemplateService.listTemplates(query);
   }
 
+  @Get('stats')
+  @ApiOperation({ summary: 'Lấy thống kê tổng quan mẫu đề thi' })
+  getTemplateStats() {
+    return this.adminExamTemplateService.getTemplateStats();
+  }
+
   @Post()
   @ApiOperation({ summary: 'Tạo mẫu đề thi' })
   createTemplate(
@@ -67,7 +73,10 @@ export class AdminExamTemplateController {
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Xóa mẫu đề thi ở trạng thái nháp' })
+  @ApiOperation({
+    summary:
+      'Xóa mẫu đề thi (mọi trạng thái); xóa luôn các bài làm liên quan nếu có',
+  })
   deleteTemplate(@Param('id') id: string) {
     return this.adminExamTemplateService.deleteTemplate(id);
   }

@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   ArrayMinSize,
   IsArray,
+  IsEnum,
   IsISO8601,
   IsObject,
   IsOptional,
@@ -11,6 +12,20 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
+import { TemplateMode } from '@common/constants/exam-template.enum';
+
+export class LearnerExamTemplateQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: TemplateMode })
+  @IsOptional()
+  @IsEnum(TemplateMode)
+  mode?: TemplateMode;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  keyword?: string;
+}
 
 export class StartExamAttemptDto {
   @ApiProperty({

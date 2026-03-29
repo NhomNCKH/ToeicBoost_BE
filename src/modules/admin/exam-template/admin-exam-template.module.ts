@@ -7,6 +7,8 @@ import { ExamTemplateRule } from './entities/exam-template-rule.entity';
 import { ExamTemplateItem } from './entities/exam-template-item.entity';
 import { AdminExamTemplateController } from './admin-exam-template.controller';
 import { AdminExamTemplateService } from './admin-exam-template.service';
+import { ExamAttempt } from '@modules/assessment/exam-attempt/entities/exam-attempt.entity';
+import { CredentialRequest } from '@modules/admin/credential/entities/credential-request.entity';
 
 @Module({
   imports: [
@@ -16,6 +18,8 @@ import { AdminExamTemplateService } from './admin-exam-template.service';
       ExamTemplateSection,
       ExamTemplateRule,
       ExamTemplateItem,
+      ExamAttempt,
+      CredentialRequest,
     ]),
   ],
   controllers: [AdminExamTemplateController],

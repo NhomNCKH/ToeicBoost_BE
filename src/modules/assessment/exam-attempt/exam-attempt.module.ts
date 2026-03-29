@@ -7,6 +7,7 @@ import { ExamTemplate } from '@modules/admin/exam-template/entities/exam-templat
 import { ExamAttemptController } from './exam-attempt.controller';
 import { CredentialEligibilityService } from './credential-eligibility.service';
 import { ExamAttemptService } from './exam-attempt.service';
+import { LearnerExamTemplateController } from './learner-exam-template.controller';
 import { ExamAttempt } from './entities/exam-attempt.entity';
 import { ExamAttemptAnswer } from './entities/exam-attempt-answer.entity';
 import { ExamAttemptPartScore } from './entities/exam-attempt-part-score.entity';
@@ -23,7 +24,7 @@ import { ExamAttemptPartScore } from './entities/exam-attempt-part-score.entity'
       CredentialEvent,
     ]),
   ],
-  controllers: [ExamAttemptController],
+  controllers: [ExamAttemptController, LearnerExamTemplateController],
   providers: [ExamAttemptService, CredentialEligibilityService],
   exports: [TypeOrmModule, ExamAttemptService, CredentialEligibilityService],
 })

@@ -39,6 +39,27 @@ import {
 
 @Injectable()
 export class AdminQuestionBankService {
+  private static readonly ALLOWED_STATUS_TRANSITIONS: Record<
+    QuestionGroupStatus,
+    QuestionGroupStatus[]
+  > = {
+    [QuestionGroupStatus.DRAFT]: [
+      QuestionGroupStatus.IN_REVIEW,
+      QuestionGroupStatus.ARCHIVED,
+    ],
+    [QuestionGroupStatus.IN_REVIEW]: [
+      QuestionGroupStatus.APPROVED,
+      QuestionGroupStatus.DRAFT,
+      QuestionGroupStatus.ARCHIVED,
+    ],
+    [QuestionGroupStatus.APPROVED]: [
+      QuestionGroupStatus.PUBLISHED,
+      QuestionGroupStatus.ARCHIVED,
+    ],
+    [QuestionGroupStatus.PUBLISHED]: [QuestionGroupStatus.ARCHIVED],
+    [QuestionGroupStatus.ARCHIVED]: [QuestionGroupStatus.DRAFT],
+  };
+
   constructor(
     @InjectRepository(Tag)
     private readonly tagRepository: Repository<Tag>,
@@ -242,6 +263,12 @@ export class AdminQuestionBankService {
       );
     }
 
+    if (dto.status && dto.status !== existing.status) {
+      throw new BadRequestException(
+        'Status updates must use workflow endpoints (submit-review/approve/reject/publish/archive)',
+      );
+    }
+
     await this.validateQuestionGroupPayload(dto, id, true);
 
     const questionGroupId = await this.dataSource.transaction(
@@ -251,7 +278,7 @@ export class AdminQuestionBankService {
           title: dto.title?.trim() ?? existing.title,
           part: dto.part ?? existing.part,
           level: dto.level ?? existing.level,
-          status: dto.status ?? existing.status,
+          status: existing.status,
           stem:
             dto.stem !== undefined ? (dto.stem?.trim() ?? null) : existing.stem,
           explanation:
@@ -422,16 +449,41 @@ export class AdminQuestionBankService {
       throw new NotFoundException('One or more question groups not found');
     }
 
-    const now = new Date();
-    for (const group of groups) {
-      group.status = dto.status;
-      group.updatedById = userId;
-      group.reviewedById = userId;
-      group.publishedAt =
-        dto.status === QuestionGroupStatus.PUBLISHED ? now : group.publishedAt;
-    }
+    await this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(QuestionGroup);
+      const reviewRepository = manager.getRepository(QuestionGroupReview);
+      const now = new Date();
 
-    await this.questionGroupRepository.save(groups);
+      for (const group of groups) {
+        this.assertValidStatusTransition(group.status, dto.status);
+        if (dto.status === QuestionGroupStatus.PUBLISHED) {
+          const details = await repository.findOne({
+            where: { id: group.id, deletedAt: IsNull() },
+            relations: { assets: true, questions: { options: true } },
+          });
+          if (!details) throw new NotFoundException('Question group not found');
+          this.ensurePublishable(details);
+        }
+        group.status = dto.status;
+        group.updatedById = userId;
+        group.reviewedById = userId;
+        group.publishedAt =
+          dto.status === QuestionGroupStatus.PUBLISHED ? now : group.publishedAt;
+      }
+
+      await repository.save(groups);
+      await reviewRepository.save(
+        groups.map((group) =>
+          reviewRepository.create({
+            createdById: userId,
+            questionGroupId: group.id,
+            action: `bulk_${dto.status}`,
+            comment: null,
+            performedById: userId,
+          }),
+        ),
+      );
+    });
 
     return { updated: groups.length, status: dto.status };
   }
@@ -623,6 +675,8 @@ export class AdminQuestionBankService {
           throw new NotFoundException('Question group not found');
         }
 
+        this.assertValidStatusTransition(questionGroup.status, status);
+
         if (status === QuestionGroupStatus.PUBLISHED) {
           this.ensurePublishable(questionGroup);
         }
@@ -807,6 +861,15 @@ export class AdminQuestionBankService {
             `answerKey "${question.answerKey}" does not match any option in question ${question.questionNo}`,
           );
         }
+
+        const correctOptions = question.options.filter(
+          (option) => option.isCorrect,
+        ).length;
+        if (correctOptions !== 1) {
+          throw new BadRequestException(
+            `Question ${question.questionNo} must have exactly one correct option`,
+          );
+        }
       }
     }
 
@@ -918,6 +981,20 @@ export class AdminQuestionBankService {
     if (!allowed.has(contentType)) {
       throw new BadRequestException(
         `Unsupported import contentType: ${contentType}`,
+      );
+    }
+  }
+
+  private assertValidStatusTransition(
+    currentStatus: QuestionGroupStatus,
+    nextStatus: QuestionGroupStatus,
+  ) {
+    if (currentStatus === nextStatus) return;
+    const allowed =
+      AdminQuestionBankService.ALLOWED_STATUS_TRANSITIONS[currentStatus] ?? [];
+    if (!allowed.includes(nextStatus)) {
+      throw new BadRequestException(
+        `Invalid status transition: ${currentStatus} -> ${nextStatus}`,
       );
     }
   }

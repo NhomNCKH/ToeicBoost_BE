@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
+import { CredentialRequest } from '@modules/admin/credential/entities/credential-request.entity';
 import { paginate } from '@helpers/pagination.helper';
 import {
   TemplateItemMode,
@@ -20,6 +21,7 @@ import { ExamTemplate } from './entities/exam-template.entity';
 import { ExamTemplateSection } from './entities/exam-template-section.entity';
 import { ExamTemplateRule } from './entities/exam-template-rule.entity';
 import { ExamTemplateItem } from './entities/exam-template-item.entity';
+import { ExamAttempt } from '@modules/assessment/exam-attempt/entities/exam-attempt.entity';
 import {
   AddManualExamTemplateItemsDto,
   AutoFillExamTemplateItemsDto,
@@ -44,8 +46,53 @@ export class AdminExamTemplateService {
     private readonly examTemplateItemRepository: Repository<ExamTemplateItem>,
     @InjectRepository(QuestionGroup)
     private readonly questionGroupRepository: Repository<QuestionGroup>,
+    @InjectRepository(ExamAttempt)
+    private readonly examAttemptRepository: Repository<ExamAttempt>,
     private readonly dataSource: DataSource,
   ) {}
+
+  async getTemplateStats() {
+    const [total, published, draft, archived, totalAttempts, modeCountsRaw] =
+      await Promise.all([
+        this.examTemplateRepository.count(),
+        this.examTemplateRepository.count({
+          where: { status: TemplateStatus.PUBLISHED },
+        }),
+        this.examTemplateRepository.count({
+          where: { status: TemplateStatus.DRAFT },
+        }),
+        this.examTemplateRepository.count({
+          where: { status: TemplateStatus.ARCHIVED },
+        }),
+        this.examAttemptRepository.count(),
+        this.examTemplateRepository
+          .createQueryBuilder('tpl')
+          .select('tpl.mode', 'mode')
+          .addSelect('COUNT(*)', 'count')
+          .groupBy('tpl.mode')
+          .getRawMany<{ mode: string; count: string }>(),
+      ]);
+
+    const modeCounts = {
+      practice: 0,
+      mock_test: 0,
+      official_exam: 0,
+    };
+    for (const item of modeCountsRaw) {
+      if (item.mode in modeCounts) {
+        modeCounts[item.mode as keyof typeof modeCounts] = Number(item.count);
+      }
+    }
+
+    return {
+      total,
+      published,
+      draft,
+      archived,
+      totalAttempts,
+      modes: modeCounts,
+    };
+  }
 
   async listTemplates(query: ExamTemplateQueryDto) {
     const qb = this.examTemplateRepository
@@ -158,6 +205,10 @@ export class AdminExamTemplateService {
     return this.getTemplateDetail(id);
   }
 
+  /**
+   * Xóa mẫu đề thi mọi trạng thái (nháp / đã xuất bản / lưu trữ).
+   * Gỡ liên kết credential → xóa exam_attempts (CASCADE xóa answers, part_scores) → xóa template (CASCADE sections, items, rules, snapshots).
+   */
   async deleteTemplate(id: string) {
     const template = await this.examTemplateRepository.findOne({
       where: { id },
@@ -166,8 +217,25 @@ export class AdminExamTemplateService {
       throw new NotFoundException('Exam template not found');
     }
 
-    this.ensureTemplateEditable(template);
-    await this.examTemplateRepository.delete(id);
+    await this.dataSource.transaction(async (manager) => {
+      const attempts = await manager.getRepository(ExamAttempt).find({
+        where: { examTemplateId: id },
+        select: { id: true },
+      });
+      const attemptIds = attempts.map((a) => a.id);
+      if (attemptIds.length > 0) {
+        await manager.getRepository(CredentialRequest).update(
+          { examAttemptId: In(attemptIds) },
+          { examAttemptId: null },
+        );
+        await manager.getRepository(ExamAttempt).delete({
+          examTemplateId: id,
+        });
+      }
+
+      await manager.getRepository(ExamTemplate).delete(id);
+    });
+
     return { deleted: true };
   }
 
