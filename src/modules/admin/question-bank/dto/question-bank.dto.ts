@@ -1,6 +1,7 @@
 import { PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   ArrayMinSize,
   IsArray,
   IsBoolean,
@@ -340,6 +341,7 @@ export class ImportQuestionGroupsDto {
   @ApiProperty({ type: [CreateQuestionGroupDto] })
   @IsArray()
   @ArrayMinSize(1)
+  @ArrayMaxSize(1000)
   @ValidateNested({ each: true })
   @Type(() => CreateQuestionGroupDto)
   groups: CreateQuestionGroupDto[];

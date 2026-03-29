@@ -12,6 +12,7 @@ import { QuestionPart } from '@common/constants/question-bank.enum';
 import { CredentialRequest } from '@modules/admin/credential/entities/credential-request.entity';
 import { ExamTemplate } from '@modules/admin/exam-template/entities/exam-template.entity';
 import {
+  LearnerExamTemplateQueryDto,
   SaveExamAttemptAnswersDto,
   StartExamAttemptDto,
   SubmitExamAttemptDto,
@@ -120,6 +121,54 @@ export class ExamAttemptService {
     private readonly credentialEligibilityService: CredentialEligibilityService,
     private readonly dataSource: DataSource,
   ) {}
+
+  async listPublishedTemplates(query: LearnerExamTemplateQueryDto) {
+    const qb = this.examTemplateRepository
+      .createQueryBuilder('tpl')
+      .where('tpl.status = :status', { status: TemplateStatus.PUBLISHED });
+
+    if (query.mode) {
+      qb.andWhere('tpl.mode = :mode', { mode: query.mode });
+    }
+
+    if (query.keyword?.trim()) {
+      qb.andWhere('(tpl.code ILIKE :keyword OR tpl.name ILIKE :keyword)', {
+        keyword: `%${query.keyword.trim()}%`,
+      });
+    }
+
+    qb.select([
+      'tpl.id',
+      'tpl.code',
+      'tpl.name',
+      'tpl.mode',
+      'tpl.status',
+      'tpl.totalDurationSec',
+      'tpl.totalQuestions',
+      'tpl.instructions',
+      'tpl.metadata',
+      'tpl.publishedAt',
+      'tpl.createdAt',
+      'tpl.updatedAt',
+    ]);
+
+    return qb
+      .orderBy('tpl.publishedAt', 'DESC')
+      .addOrderBy('tpl.updatedAt', 'DESC')
+      .addOrderBy('tpl.createdAt', 'DESC')
+      .skip(((query.page ?? 1) - 1) * (query.limit ?? 20))
+      .take(query.limit ?? 20)
+      .getManyAndCount()
+      .then(([data, total]) => ({
+        data,
+        pagination: {
+          page: query.page ?? 1,
+          limit: query.limit ?? 20,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / Math.max(query.limit ?? 20, 1))),
+        },
+      }));
+  }
 
   async startAttempt(dto: StartExamAttemptDto, userId: string) {
     const existingAttempt = await this.examAttemptRepository.findOne({

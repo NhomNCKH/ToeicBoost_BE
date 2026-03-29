@@ -15,7 +15,7 @@ import type { Express } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { DataSource, Repository } from 'typeorm';
 import { APP_CONSTANTS } from '../../common/constants/app.constant';
-import { UserRole } from '../../common/constants/user.enum';
+import { UserRole, UserStatus } from '../../common/constants/user.enum';
 import {
   IJwtPayload,
   ITokenPair,
@@ -108,6 +108,8 @@ export class SecurityService {
       );
     }
 
+    this.assertLoginAllowedByStatus(user.status);
+
     const isValidPassword = await HashHelper.compare(
       dto.password,
       user.passwordHash,
@@ -180,6 +182,8 @@ export class SecurityService {
       if (!user) {
         throw new UnauthorizedException('User not found');
       }
+
+      this.assertLoginAllowedByStatus(user.status);
 
       // Revoke token cũ trong cùng transaction
       refreshToken.revokedAt = new Date();
@@ -492,5 +496,19 @@ export class SecurityService {
     if (normalized === 'image/bmp') return '.bmp';
     if (normalized === 'image/svg+xml') return '.svg';
     return null;
+  }
+
+  private assertLoginAllowedByStatus(status: UserStatus) {
+    if (status === UserStatus.PENDING_VERIFICATION) {
+      throw new ForbiddenException('Account is pending verification');
+    }
+
+    if (status === UserStatus.SUSPENDED) {
+      throw new ForbiddenException('Account is suspended');
+    }
+
+    if (status === UserStatus.DELETED) {
+      throw new ForbiddenException('Account is deleted');
+    }
   }
 }

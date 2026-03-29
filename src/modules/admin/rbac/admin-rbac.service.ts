@@ -6,15 +6,23 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { UserStatus } from '@common/constants/user.enum';
 import { User } from '@modules/security/entities/user.entity';
+import { HashHelper } from '@helpers/hash.helper';
 import { Permission } from './entities/permission.entity';
 import { Role } from './entities/role.entity';
+import { RolePermission } from './entities/role-permission.entity';
 import { UserRoleAssignment } from './entities/user-role.entity';
 import {
+  CreateAdminUserDto,
   CreatePermissionDto,
   CreateRoleDto,
+  RbacPermissionQueryDto,
+  RbacRoleQueryDto,
   RbacUserQueryDto,
+  ReplaceRolePermissionsDto,
   ReplaceUserRolesDto,
+  UpdateAdminUserDto,
   UpdatePermissionDto,
   UpdateRoleDto,
 } from './dto/admin-rbac.dto';
@@ -28,19 +36,66 @@ export class AdminRbacService {
     private readonly roleRepository: Repository<Role>,
     @InjectRepository(Permission)
     private readonly permissionRepository: Repository<Permission>,
+    @InjectRepository(RolePermission)
+    private readonly rolePermissionRepository: Repository<RolePermission>,
     @InjectRepository(UserRoleAssignment)
     private readonly userRoleRepository: Repository<UserRoleAssignment>,
   ) {}
 
-  async listRoles() {
-    const roles = await this.roleRepository.find({
-      order: { createdAt: 'ASC' },
-      relations: { rolePermissions: { permission: true } },
-    });
+  async listRoles(query: RbacRoleQueryDto) {
+    const sortMap: Record<string, string> = {
+      createdAt: 'role.createdAt',
+      updatedAt: 'role.updatedAt',
+      name: 'role.name',
+      code: 'role.code',
+    };
+    const sortBy = sortMap[query.sort ?? 'createdAt'] ?? 'role.createdAt';
+
+    const qb = this.roleRepository
+      .createQueryBuilder('role')
+      .leftJoinAndSelect('role.rolePermissions', 'rolePermission')
+      .leftJoinAndSelect('rolePermission.permission', 'permission')
+      .orderBy(sortBy, query.order ?? 'DESC')
+      .skip(((query.page ?? 1) - 1) * (query.limit ?? 20))
+      .take(query.limit ?? 20);
+
+    if (query.keyword) {
+      qb.andWhere(
+        '(role.name ILIKE :keyword OR role.code ILIKE :keyword OR role.description ILIKE :keyword)',
+        { keyword: `%${query.keyword}%` },
+      );
+    }
+
+    if (query.isSystem !== undefined) {
+      qb.andWhere('role.isSystem = :isSystem', { isSystem: query.isSystem });
+    }
+
+    const [roles, total] = await qb.getManyAndCount();
 
     return {
       success: true,
-      data: roles,
+      data: {
+        items: roles.map((role) => ({
+          id: role.id,
+          code: role.code,
+          name: role.name,
+          description: role.description,
+          isSystem: role.isSystem,
+          permissions: (role.rolePermissions ?? []).map((rp) => ({
+            id: rp.permission.id,
+            code: rp.permission.code,
+            name: rp.permission.name,
+            module: rp.permission.module,
+          })),
+          createdAt: role.createdAt,
+          updatedAt: role.updatedAt,
+        })),
+        meta: {
+          total,
+          page: query.page ?? 1,
+          limit: query.limit ?? 20,
+        },
+      },
     };
   }
 
@@ -126,14 +181,91 @@ export class AdminRbacService {
     };
   }
 
-  async listPermissions() {
-    const permissions = await this.permissionRepository.find({
-      order: { createdAt: 'ASC' },
-    });
+  async replaceRolePermissions(roleId: string, dto: ReplaceRolePermissionsDto) {
+    const role = await this.roleRepository.findOne({ where: { id: roleId } });
+    if (!role) {
+      throw new NotFoundException('Role not found');
+    }
+
+    const normalizedPermissionCodes = Array.from(new Set(dto.permissions));
+    const permissions = normalizedPermissionCodes.length
+      ? await this.permissionRepository.find({
+          where: normalizedPermissionCodes.map((code) => ({ code })),
+        })
+      : [];
+
+    if (permissions.length !== normalizedPermissionCodes.length) {
+      const missing = normalizedPermissionCodes.filter(
+        (code) => !permissions.some((permission) => permission.code === code),
+      );
+      throw new BadRequestException(
+        `Missing permission codes: ${missing.join(', ')}`,
+      );
+    }
+
+    await this.rolePermissionRepository.delete({ roleId });
+
+    if (permissions.length > 0) {
+      await this.rolePermissionRepository.save(
+        permissions.map((permission) =>
+          this.rolePermissionRepository.create({
+            roleId,
+            permissionId: permission.id,
+          }),
+        ),
+      );
+    }
 
     return {
       success: true,
-      data: permissions,
+      data: {
+        id: role.id,
+        permissions: permissions.map((permission) => permission.code),
+      },
+    };
+  }
+
+  async listPermissions(query: RbacPermissionQueryDto) {
+    const sortMap: Record<string, string> = {
+      createdAt: 'permission.createdAt',
+      updatedAt: 'permission.updatedAt',
+      name: 'permission.name',
+      code: 'permission.code',
+      module: 'permission.module',
+    };
+    const sortBy = sortMap[query.sort ?? 'createdAt'] ?? 'permission.createdAt';
+
+    const qb = this.permissionRepository
+      .createQueryBuilder('permission')
+      .orderBy(sortBy, query.order ?? 'DESC')
+      .skip(((query.page ?? 1) - 1) * (query.limit ?? 20))
+      .take(query.limit ?? 20);
+
+    if (query.keyword) {
+      qb.andWhere(
+        '(permission.name ILIKE :keyword OR permission.code ILIKE :keyword OR permission.description ILIKE :keyword)',
+        { keyword: `%${query.keyword}%` },
+      );
+    }
+
+    if (query.module) {
+      qb.andWhere('permission.module ILIKE :module', {
+        module: `%${query.module}%`,
+      });
+    }
+
+    const [permissions, total] = await qb.getManyAndCount();
+
+    return {
+      success: true,
+      data: {
+        items: permissions,
+        meta: {
+          total,
+          page: query.page ?? 1,
+          limit: query.limit ?? 20,
+        },
+      },
     };
   }
 
@@ -218,12 +350,22 @@ export class AdminRbacService {
   }
 
   async listUsers(query: RbacUserQueryDto) {
+    const sortMap: Record<string, string> = {
+      createdAt: 'user.createdAt',
+      updatedAt: 'user.updatedAt',
+      name: 'user.name',
+      email: 'user.email',
+      status: 'user.status',
+      lastLoginAt: 'user.lastLoginAt',
+    };
+    const sortBy = sortMap[query.sort ?? 'createdAt'] ?? 'user.createdAt';
+
     const qb = this.userRepository
       .createQueryBuilder('user')
       .leftJoinAndSelect('user.userRoles', 'userRole')
       .leftJoinAndSelect('userRole.role', 'role')
       .distinct(true)
-      .orderBy(`user.${query.sort ?? 'createdAt'}`, query.order ?? 'DESC')
+      .orderBy(sortBy, query.order ?? 'DESC')
       .skip(((query.page ?? 1) - 1) * (query.limit ?? 20))
       .take(query.limit ?? 20);
 
@@ -235,6 +377,17 @@ export class AdminRbacService {
 
     if (query.role) {
       qb.andWhere('role.code = :roleCode', { roleCode: query.role });
+    }
+
+    if (query.status) {
+      qb.andWhere('user.status = :status', {
+        status: query.status as UserStatus,
+      });
+    } else {
+      // Hide soft-deleted users by default in admin list.
+      qb.andWhere('user.status != :deletedStatus', {
+        deletedStatus: UserStatus.DELETED,
+      });
     }
 
     const [items, total] = await qb.getManyAndCount();
@@ -258,6 +411,102 @@ export class AdminRbacService {
           limit: query.limit ?? 20,
         },
       },
+    };
+  }
+
+  async createUser(dto: CreateAdminUserDto) {
+    const normalizedEmail = dto.email.trim().toLowerCase();
+    const exists = await this.userRepository.findOne({
+      where: { email: normalizedEmail },
+      select: { id: true },
+    });
+    if (exists) {
+      throw new ConflictException('Email already exists');
+    }
+
+    const user = await this.userRepository.save(
+      this.userRepository.create({
+        name: dto.name.trim(),
+        email: normalizedEmail,
+        passwordHash: await HashHelper.hash(dto.password),
+        status: dto.status ?? UserStatus.ACTIVE,
+      }),
+    );
+
+    return {
+      success: true,
+      data: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        status: user.status,
+        createdAt: user.createdAt,
+      },
+    };
+  }
+
+  async updateUser(userId: string, dto: UpdateAdminUserDto) {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (dto.email) {
+      const normalizedEmail = dto.email.trim().toLowerCase();
+      if (normalizedEmail !== user.email) {
+        const exists = await this.userRepository.findOne({
+          where: { email: normalizedEmail },
+          select: { id: true },
+        });
+        if (exists) {
+          throw new ConflictException('Email already exists');
+        }
+        user.email = normalizedEmail;
+      }
+    }
+
+    if (dto.name !== undefined) {
+      user.name = dto.name.trim();
+    }
+
+    if (dto.status !== undefined) {
+      user.status = dto.status;
+    }
+
+    if (dto.password !== undefined) {
+      const trimmedPassword = dto.password.trim();
+      if (!trimmedPassword) {
+        throw new BadRequestException('Password cannot be empty');
+      }
+      user.passwordHash = await HashHelper.hash(trimmedPassword);
+    }
+
+    await this.userRepository.save(user);
+
+    return {
+      success: true,
+      data: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        status: user.status,
+        updatedAt: user.updatedAt,
+      },
+    };
+  }
+
+  async deleteUser(userId: string) {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    user.status = UserStatus.DELETED;
+    await this.userRepository.save(user);
+
+    return {
+      success: true,
+      data: { id: user.id, status: user.status },
     };
   }
 
