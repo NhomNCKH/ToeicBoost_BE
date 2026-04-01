@@ -39,10 +39,15 @@ jobs:
               cd ToeicBoost_BE
             fi
 
-            if [ -n "${{ secrets.PRODUCTION_ENV_FILE }}" ]; then
-              cat > .env.production << 'EOF'
+            TEMP_ENV_FILE="$(mktemp)"
+            cat > "$TEMP_ENV_FILE" << 'EOF'
             ${{ secrets.PRODUCTION_ENV_FILE }}
             EOF
+
+            if grep -q '[^[:space:]]' "$TEMP_ENV_FILE"; then
+              mv "$TEMP_ENV_FILE" .env.production
+            else
+              rm -f "$TEMP_ENV_FILE"
             fi
 
             if [ ! -f ".env.production" ]; then
@@ -55,6 +60,7 @@ jobs:
             pm2 save >/dev/null 2>&1 || true
 
             docker compose -f docker-compose.production.yml down --remove-orphans || true
+            docker rm -f toeic-nginx-prod toeic-api-prod >/dev/null 2>&1 || true
 
             echo "🏗️ Building and starting production stack..."
             docker compose -f docker-compose.production.yml up -d --build --remove-orphans
