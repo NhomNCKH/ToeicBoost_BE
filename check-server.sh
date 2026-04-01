@@ -1,8 +1,6 @@
 #!/bin/bash
 
 echo "🔍 CHECKING SERVER STATUS..."
-
-# Check if we can SSH to server (this will be run locally to test SSH)
 echo "Testing SSH connection..."
 ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no root@144.91.104.237 "echo 'SSH connection successful'"
 
@@ -40,11 +38,23 @@ fi
 
 echo ""
 echo "🌐 Network Status:"
-echo "Checking ports 80 / 3001 / 5433..."
-if ss -tulpn | grep -E '(:80|:3001|:5433)'; then
+echo "Checking ports 80 / 127.0.0.1:3001 / 5433..."
+if ss -tulpn | grep -E '(:80|127.0.0.1:3001|:5433)'; then
     echo "✅ Required ports are present"
 else
     echo "❌ Expected ports not detected"
+fi
+
+echo ""
+echo "🧭 Host Nginx Service:"
+systemctl is-active nginx || true
+
+echo ""
+echo "🏥 Loopback API Health Check:"
+if curl -fsS --connect-timeout 5 http://127.0.0.1:3001/health; then
+    echo "✅ Loopback API health check passed"
+else
+    echo "❌ Loopback API health check failed"
 fi
 
 echo ""
@@ -73,12 +83,8 @@ else
 fi
 
 echo ""
-echo "📋 Nginx Container Logs (last 20 lines):"
-if docker ps | grep -q toeic-nginx-prod; then
-    docker logs --tail 20 toeic-nginx-prod
-else
-    echo "❌ toeic-nginx-prod container not found"
-fi
+echo "📋 Host Nginx Logs (last 20 lines):"
+journalctl -u nginx -n 20 --no-pager || true
 
 EOF
 

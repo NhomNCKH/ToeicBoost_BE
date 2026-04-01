@@ -1,121 +1,19 @@
-version: '3.8'
-
 services:
-  # Main API Application
   api:
     build:
       context: .
       dockerfile: Dockerfile
       target: production
-    container_name: toeic_ai_api
+    container_name: toeic-api-prod
     restart: unless-stopped
-    ports:
-      - '3001:3001'
-    environment:
-      - NODE_ENV=production
-      - DB_HOST=postgres
-      - REDIS_HOST=redis
-      - S3_ENDPOINT=http://minio:9000
     env_file:
       - .env.production
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    volumes:
-      - ./logs:/app/logs
-    networks:
-      - toeic_network
+    ports:
+      - '127.0.0.1:3001:3001'
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
       start_period: 40s
-
-  # Database
-  postgres:
-    image: postgres:16-alpine
-    container_name: toeic_ai_postgres
-    restart: unless-stopped
-    ports:
-      - '5432:5432'
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: toeic_ai
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
-    networks:
-      - toeic_network
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U postgres']
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Cache
-  redis:
-    image: redis:7-alpine
-    container_name: toeic_ai_redis
-    restart: unless-stopped
-    ports:
-      - '6379:6379'
-    volumes:
-      - redis_data:/data
-    networks:
-      - toeic_network
-    healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Object Storage
-  minio:
-    image: minio/minio:latest
-    container_name: toeic_ai_minio
-    restart: unless-stopped
-    ports:
-      - '9000:9000'
-      - '9001:9001'
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    volumes:
-      - minio_data:/data
-    networks:
-      - toeic_network
-    command: server /data --console-address ":9001"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
-
-  # Reverse Proxy (Optional)
-  nginx:
-    image: nginx:alpine
-    container_name: toeic_ai_nginx
-    restart: unless-stopped
-    ports:
-      - '80:80'
-      - '443:443'
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
-      - ./nginx/ssl:/etc/nginx/ssl
-    depends_on:
-      - api
-    networks:
-      - toeic_network
-
-volumes:
-  postgres_data:
-  redis_data:
-  minio_data:
-
-networks:
-  toeic_network:
-    driver: bridge
+    mem_limit: 512m

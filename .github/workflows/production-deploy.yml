@@ -35,7 +35,7 @@ jobs:
             else
               mkdir -p /var/www/toeicai
               cd /var/www/toeicai
-              git clone git@github.com:NhomNCKH/ToeicBoost_BE.git ToeicBoost_BE
+              git clone https://github.com/NhomNCKH/ToeicBoost_BE.git ToeicBoost_BE
               cd ToeicBoost_BE
             fi
 
@@ -73,13 +73,40 @@ jobs:
               sleep 5
             done
 
+            if ! docker inspect toeic-api-prod --format '{{.State.Health.Status}}' 2>/dev/null | grep -q healthy; then
+              echo "❌ API container did not become healthy"
+              docker logs --tail 100 toeic-api-prod || true
+              exit 1
+            fi
+
+            echo "🏥 Loopback API health check:"
+            curl -fsS http://127.0.0.1:3001/health
+
             echo "🗃️ Running database migrations..."
             docker exec toeic-api-prod npm run migration:run
+
+            if ! command -v nginx >/dev/null 2>&1; then
+              apt-get update
+              apt-get install -y nginx
+            fi
+
+            install -d /etc/nginx/sites-available /etc/nginx/sites-enabled
+            cp nginx/toeicboost.conf /etc/nginx/sites-available/toeicboost.conf
+            ln -sf /etc/nginx/sites-available/toeicboost.conf /etc/nginx/sites-enabled/toeicboost.conf
+            rm -f /etc/nginx/conf.d/toeicboost.conf
+            rm -f /etc/nginx/sites-enabled/default
+            nginx -t
+            systemctl enable nginx
+            systemctl restart nginx
 
             echo "🔍 Final container status:"
             docker compose -f docker-compose.production.yml ps
 
-            echo "🌐 Nginx health check:"
+            echo ""
+            echo "🌐 Final network status:"
+            ss -tulpn | grep -E "(:80|127.0.0.1:3001|:5433)" || true
+
+            echo "🌐 Host Nginx health check:"
             curl -fsS http://localhost/health
 
             echo ""
@@ -91,7 +118,7 @@ jobs:
             docker logs --tail 20 toeic-api-prod
 
             echo ""
-            echo "📋 Nginx logs:"
-            docker logs --tail 20 toeic-nginx-prod
+            echo "📋 Host Nginx logs:"
+            journalctl -u nginx -n 20 --no-pager || true
 
             echo "✅ Deployment completed!"

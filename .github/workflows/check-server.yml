@@ -35,7 +35,15 @@ jobs:
 
             echo ""
             echo "🌐 Network Status:"
-            ss -tulpn | grep -E "(:80|:3001|:5433)" || true
+            ss -tulpn | grep -E "(:80|127.0.0.1:3001|:5433)" || true
+
+            echo ""
+            echo "🧭 Host Nginx Service:"
+            systemctl is-active nginx || true
+
+            echo ""
+            echo "🏥 Loopback API Health Check:"
+            curl -fsS --connect-timeout 5 http://127.0.0.1:3001/health
 
             echo ""
             echo "🏥 Nginx Health Check:"
@@ -58,5 +66,5 @@ jobs:
             docker logs --tail 10 toeic-api-prod || true
 
             echo ""
-            echo "📋 Nginx Logs (last 10 lines):"
-            docker logs --tail 10 toeic-nginx-prod || true
+            echo "📋 Host Nginx Logs (last 10 lines):"
+            journalctl -u nginx -n 10 --no-pager || true
