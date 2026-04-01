@@ -1,0 +1,40 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: toeic-api-prod
+    env_file:
+      - .env.production
+    restart: unless-stopped
+    expose:
+      - '3001'
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    networks:
+      - toeic-network
+    mem_limit: 512m
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: toeic-nginx-prod
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - '80:80'
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - toeic-network
+    mem_limit: 128m
+
+networks:
+  toeic-network:
+    driver: bridge

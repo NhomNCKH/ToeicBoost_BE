@@ -1,10 +1,11 @@
-# Production Dockerfile - Simple and Reliable
-FROM node:20-alpine
+# Production Dockerfile - aligned with docker-compose production target
+FROM node:20-alpine AS production
 
 # Set working directory
 WORKDIR /app
 
-# Install dependencies first (including dev dependencies for build)
+# Install dependencies first. Keep build tooling because production deploy
+# currently runs migrations from inside the container after startup.
 COPY package*.json ./
 RUN npm ci && npm cache clean --force
 
@@ -13,9 +14,6 @@ COPY . .
 
 # Build the application
 RUN npm run build
-
-# Remove dev dependencies after build
-RUN npm ci --only=production && npm cache clean --force
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \

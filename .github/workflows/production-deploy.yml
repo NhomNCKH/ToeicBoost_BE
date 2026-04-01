@@ -2,123 +2,90 @@ name: Production Deploy
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   deploy:
     name: Deploy to Production
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Deploy to server
-      uses: appleboy/ssh-action@v1.1.0
-      with:
-        host: ${{ secrets.SERVER_HOST }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SERVER_SSH_KEY }}
-        port: 22
-        script: |
-          # Configuration
-          APP_DIR="/var/www/toeicai/ToeicBoost_BE"
-          
-          echo "🚀 Starting deployment..."
-          
-          # Stop existing services
-          cd "$APP_DIR" 2>/dev/null || true
-          if [ -f "docker-compose.production.yml" ]; then
-            docker-compose -f docker-compose.production.yml down || true
-          fi
-          
-          # Kill processes on port 3001
-          sudo lsof -ti:3001 | xargs sudo kill -9 2>/dev/null || true
-          
-          # Update code
-          if [ -d "$APP_DIR" ]; then
-            cd "$APP_DIR"
-            git fetch origin
-            git reset --hard origin/main
-            git pull origin main
-          else
-            mkdir -p /var/www/toeicai
-            cd /var/www/toeicai
-            git clone git@github.com:NhomNCKH/ToeicBoost_BE.git ToeicBoost_BE
-            cd ToeicBoost_BE
-          fi
-          
-          # Create docker-compose.production.yml
-          echo "Creating docker-compose.production.yml..."
-          cat > docker-compose.production.yml << 'EOF'
-          version: "3.8"
-          
-          services:
-            api:
-              build:
-                context: .
-                dockerfile: Dockerfile
-              container_name: toeic-api-prod
-              ports:
-                - "3001:3001"
-              env_file:
-                - .env.production
-              restart: unless-stopped
-              networks:
-                - toeic-network
-              mem_limit: 512m
-          
-          networks:
-            toeic-network:
-              driver: bridge
-          EOF
-          
-          echo "✅ docker-compose.production.yml created"
-          
-          # Build and start
-          echo "Building and starting services..."
-          docker-compose -f docker-compose.production.yml up -d --build --force-recreate
-          
-          # Wait and check
-          echo "Waiting for services to start..."
-          sleep 20
-          
-          echo "Checking container status..."
-          docker-compose -f docker-compose.production.yml ps
-          
-          echo "Checking if container is running..."
-          if docker ps | grep -q toeic-api-prod; then
-            echo "✅ Container is running"
-            
-            # Run database migrations
-            echo "Running database migrations..."
-            docker exec toeic-api-prod npm run migration:run || echo "⚠️ Migration failed or no migrations to run"
-            
-            # Test API endpoints
-            echo "Testing API endpoints..."
-            sleep 5
-            
-            echo "1. Health check:"
-            curl -s http://localhost:3001/health || echo "❌ Health check failed"
-            
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: 22
+          script: |
+            set -e
+
+            APP_DIR="/var/www/toeicai/ToeicBoost_BE"
+
+            echo "🚀 Starting deployment..."
+
+            if [ -d "$APP_DIR" ]; then
+              cd "$APP_DIR"
+              git fetch origin
+              git reset --hard origin/main
+            else
+              mkdir -p /var/www/toeicai
+              cd /var/www/toeicai
+              git clone git@github.com:NhomNCKH/ToeicBoost_BE.git ToeicBoost_BE
+              cd ToeicBoost_BE
+            fi
+
+            if [ -n "${{ secrets.PRODUCTION_ENV_FILE }}" ]; then
+              cat > .env.production << 'EOF'
+            ${{ secrets.PRODUCTION_ENV_FILE }}
+            EOF
+            fi
+
+            if [ ! -f ".env.production" ]; then
+              echo "❌ Missing .env.production"
+              exit 1
+            fi
+
+            echo "🧹 Cleaning old runtime leftovers..."
+            pm2 delete toeicai-backend >/dev/null 2>&1 || true
+            pm2 save >/dev/null 2>&1 || true
+
+            docker compose -f docker-compose.production.yml down --remove-orphans || true
+
+            echo "🏗️ Building and starting production stack..."
+            docker compose -f docker-compose.production.yml up -d --build --remove-orphans
+
+            echo "⏳ Waiting for API to become healthy..."
+            for i in $(seq 1 20); do
+              if docker inspect toeic-api-prod --format '{{.State.Health.Status}}' 2>/dev/null | grep -q healthy; then
+                break
+              fi
+              sleep 5
+            done
+
+            echo "🗃️ Running database migrations..."
+            docker exec toeic-api-prod npm run migration:run
+
+            echo "🔍 Final container status:"
+            docker compose -f docker-compose.production.yml ps
+
+            echo "🌐 Nginx health check:"
+            curl -fsS http://localhost/health
+
             echo ""
-            echo "2. API root:"
-            curl -s http://localhost:3001/api/v1/ || echo "❌ API root failed"
-            
+            echo "📚 Docs check:"
+            curl -fsSI http://localhost/api/v1/docs | head -1
+
             echo ""
-            echo "3. API docs:"
-            curl -s -I http://localhost:3001/api/v1/docs | head -1 || echo "❌ API docs failed"
-            
+            echo "📋 API logs:"
+            docker logs --tail 20 toeic-api-prod
+
             echo ""
-            echo "4. Container logs (last 10 lines):"
-            docker logs --tail 10 toeic-api-prod
-            
-          else
-            echo "❌ Container failed to start"
-            echo "Docker logs:"
-            docker-compose -f docker-compose.production.yml logs
-            exit 1
-          fi
-          
-          echo "✅ Deployment completed!"
+            echo "📋 Nginx logs:"
+            docker logs --tail 20 toeic-nginx-prod
+
+            echo "✅ Deployment completed!"

@@ -16,7 +16,7 @@ echo "====================="
 
 echo "🐳 Docker Status:"
 docker --version
-docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
 
 echo ""
 echo "🔧 Docker Compose Status:"
@@ -28,7 +28,7 @@ if [ -d "/var/www/toeicai/ToeicBoost_BE" ]; then
     
     if [ -f "docker-compose.production.yml" ]; then
         echo "✅ docker-compose.production.yml exists"
-        docker-compose -f docker-compose.production.yml ps
+        docker compose -f docker-compose.production.yml ps
     else
         echo "❌ docker-compose.production.yml not found"
     fi
@@ -40,16 +40,16 @@ fi
 
 echo ""
 echo "🌐 Network Status:"
-echo "Checking port 3001..."
-if netstat -tlnp | grep :3001; then
-    echo "✅ Port 3001 is listening"
+echo "Checking ports 80 / 3001 / 5433..."
+if ss -tulpn | grep -E '(:80|:3001|:5433)'; then
+    echo "✅ Required ports are present"
 else
-    echo "❌ Port 3001 not listening"
+    echo "❌ Expected ports not detected"
 fi
 
 echo ""
 echo "🏥 Health Check:"
-if curl -s --connect-timeout 5 http://localhost:3001/health; then
+if curl -fsS --connect-timeout 5 http://localhost/health; then
     echo "✅ Health check passed"
 else
     echo "❌ Health check failed"
@@ -65,11 +65,19 @@ else
 fi
 
 echo ""
-echo "📋 Container Logs (last 20 lines):"
+echo "📋 API Container Logs (last 20 lines):"
 if docker ps | grep -q toeic-api-prod; then
     docker logs --tail 20 toeic-api-prod
 else
     echo "❌ toeic-api-prod container not found"
+fi
+
+echo ""
+echo "📋 Nginx Container Logs (last 20 lines):"
+if docker ps | grep -q toeic-nginx-prod; then
+    docker logs --tail 20 toeic-nginx-prod
+else
+    echo "❌ toeic-nginx-prod container not found"
 fi
 
 EOF
