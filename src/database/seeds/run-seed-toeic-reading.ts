@@ -1,7 +1,7 @@
 /**
  * Seed ngân hàng câu hỏi P5–P7 (Reading, không audio/ảnh) + exam template draft gắn manual items.
  *
- * Cấu trúc: P5 × 30 câu (30 nhóm), P6 × 16 câu (4 nhóm × 4), P7 × 24 câu (6 nhóm × 4) = 70 câu.
+ * Cấu trúc: P5 × 30 câu (30 nhóm), P6 × 16 câu (4 nhóm × 4), P7 × 24 câu (6 nhóm × 4) = 70 câu (+ seed riêng thêm 9 nhóm P7 nếu cần).
  *
  * Chạy (từ thư mục ToeicBoost_BE):
  *   npm run seed:toeic-reading
@@ -9,6 +9,7 @@
  *
  * .env: DB_* bắt buộc. SEED_USER_EMAIL tùy chọn — nếu không có, seed tự chọn admin/superadmin đầu tiên, sau đó user active đầu tiên.
  * Tùy chọn: SEED_CODE_SUFFIX=... (mặc định demo) — đổi nếu trùng mã SEED-R567-<suffix>
+ * Bổ sung P7 không trùng mã seed gốc: `npm run seed:toeic-reading-p7-extra` (xem run-seed-toeic-reading-p7-extra.ts).
  *
  * Nội dung câu hỏi là văn bản mẫu phong cách TOEIC, không sao chép đề ETS.
  */
@@ -16,200 +17,24 @@ import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { DataSource } from 'typeorm';
 import { DB_ENTITIES_PATH, getDatabaseConfig } from '../../config/database.config';
-import {
-  QuestionPart,
-  QuestionLevel,
-  QuestionGroupStatus,
-} from '../../common/constants/question-bank.enum';
+import { QuestionPart } from '../../common/constants/question-bank.enum';
 import { TemplateMode, TemplateStatus, TemplateItemMode } from '../../common/constants/exam-template.enum';
-import { User } from '../../modules/security/entities/user.entity';
-import { UserStatus } from '../../common/constants/user.enum';
-import { Role } from '../../modules/admin/rbac/entities/role.entity';
-import { UserRoleAssignment } from '../../modules/admin/rbac/entities/user-role.entity';
-import { Tag } from '../../modules/admin/question-bank/entities/tag.entity';
 import { QuestionGroup } from '../../modules/admin/question-bank/entities/question-group.entity';
-import { Question } from '../../modules/admin/question-bank/entities/question.entity';
-import { QuestionOption } from '../../modules/admin/question-bank/entities/question-option.entity';
-import { QuestionGroupTag } from '../../modules/admin/question-bank/entities/question-group-tag.entity';
 import { ExamTemplate } from '../../modules/admin/exam-template/entities/exam-template.entity';
 import { ExamTemplateSection } from '../../modules/admin/exam-template/entities/exam-template-section.entity';
 import { ExamTemplateItem } from '../../modules/admin/exam-template/entities/exam-template-item.entity';
+import { buildP5Items, buildP6Passages, buildP7Passages } from './toeic-reading-p567-content';
 import {
-  buildP5Items,
-  buildP6Passages,
-  buildP7Passages,
-  optionsWithKey,
-  type McqDef,
-} from './toeic-reading-p567-content';
+  ensureReadingSeedTags,
+  readingLevelAt,
+  resolveSeedUserId,
+  saveReadingQuestionGroup,
+} from './toeic-reading-seed-shared';
 
 dotenv.config({ path: path.join(__dirname, '../../../.env') });
 
-const LEVELS = [
-  QuestionLevel.EASY,
-  QuestionLevel.MEDIUM,
-  QuestionLevel.HARD,
-  QuestionLevel.EXPERT,
-];
-
-function levelAt(i: number): QuestionLevel {
-  return LEVELS[i % LEVELS.length];
-}
-
-async function resolveUserId(ds: DataSource): Promise<string> {
-  const email = process.env.SEED_USER_EMAIL?.trim();
-  if (email) {
-    const user = await ds.getRepository(User).findOne({ where: { email } });
-    if (!user) {
-      throw new Error(`Không tìm thấy user với email: ${email}`);
-    }
-    console.log(`Seed: dùng SEED_USER_EMAIL=${email}`);
-    return user.id;
-  }
-
-  const admin = await ds
-    .getRepository(User)
-    .createQueryBuilder('u')
-    .innerJoin(UserRoleAssignment, 'ur', 'ur.userId = u.id')
-    .innerJoin(Role, 'r', 'r.id = ur.roleId')
-    .where('r.code IN (:...codes)', { codes: ['superadmin', 'admin'] })
-    .andWhere('u.status = :st', { st: UserStatus.ACTIVE })
-    .orderBy('u.createdAt', 'ASC')
-    .select(['u.id', 'u.email'])
-    .getOne();
-
-  if (admin) {
-    console.log(
-      `Seed: không có SEED_USER_EMAIL — tự chọn admin đầu tiên: ${admin.email}`,
-    );
-    return admin.id;
-  }
-
-  const fallback = await ds.getRepository(User).find({
-    where: { status: UserStatus.ACTIVE },
-    order: { createdAt: 'ASC' },
-    take: 1,
-  });
-  const u = fallback[0];
-  if (u) {
-    console.warn(
-      `Seed: không có admin/superadmin — dùng user active đầu tiên: ${u.email}`,
-    );
-    return u.id;
-  }
-
-  throw new Error(
-    'Không tìm thấy user nào để gán created_by. Tạo ít nhất một user trong DB hoặc đặt SEED_USER_EMAIL trong .env.',
-  );
-}
-
-async function ensureTags(
-  ds: DataSource,
-  userId: string,
-): Promise<Record<string, Tag>> {
-  const defs = [
-    { code: 'grammar:word_form', label: 'Word form / grammar', category: 'grammar' },
-    { code: 'grammar:preposition', label: 'Prepositions', category: 'grammar' },
-    { code: 'reading:detail', label: 'Reading detail', category: 'reading' },
-    { code: 'reading:inference', label: 'Inference', category: 'reading' },
-    { code: 'vocab:general', label: 'General vocabulary', category: 'vocabulary' },
-  ];
-  const out: Record<string, Tag> = {};
-  const repo = ds.getRepository(Tag);
-  for (const d of defs) {
-    let t = await repo.findOne({ where: { code: d.code } });
-    if (!t) {
-      t = repo.create({
-        code: d.code,
-        label: d.label,
-        category: d.category,
-        description: 'Auto-created by TOEIC P5–P7 seed',
-        createdById: userId,
-      });
-      await repo.save(t);
-    }
-    out[d.code] = t;
-  }
-  return out;
-}
-
-async function saveGroupWithQuestions(
-  ds: DataSource,
-  params: {
-    userId: string;
-    code: string;
-    title: string;
-    part: QuestionPart;
-    level: QuestionLevel;
-    stem: string | null;
-    tags: Tag[];
-    questions: McqDef[];
-  },
-): Promise<QuestionGroup> {
-  const gRepo = ds.getRepository(QuestionGroup);
-  const qRepo = ds.getRepository(Question);
-  const oRepo = ds.getRepository(QuestionOption);
-  const tRepo = ds.getRepository(QuestionGroupTag);
-
-  const group = gRepo.create({
-    code: params.code,
-    title: params.title,
-    part: params.part,
-    level: params.level,
-    status: QuestionGroupStatus.PUBLISHED,
-    stem: params.stem,
-    explanation: null,
-    sourceType: 'seed',
-    sourceRef: 'run-seed-toeic-reading',
-    publishedAt: new Date(),
-    deletedAt: null,
-    metadata: { seed: 'toeic-reading-p567' },
-    createdById: params.userId,
-  });
-  await gRepo.save(group);
-
-  for (const tag of params.tags) {
-    await tRepo.save(
-      tRepo.create({
-        questionGroupId: group.id,
-        tagId: tag.id,
-        createdById: params.userId,
-      }),
-    );
-  }
-
-  let qn = 1;
-  for (const mcq of params.questions) {
-    const q = qRepo.create({
-      questionGroupId: group.id,
-      questionNo: qn++,
-      prompt: mcq.prompt,
-      answerKey: mcq.answerKey,
-      rationale: mcq.rationale ?? null,
-      timeLimitSec: null,
-      scoreWeight: '1',
-      metadata: {},
-      createdById: params.userId,
-    });
-    await qRepo.save(q);
-
-    const opts = optionsWithKey(mcq.answerKey, mcq.options);
-    let so = 0;
-    for (const op of opts) {
-      await oRepo.save(
-        oRepo.create({
-          questionId: q.id,
-          optionKey: op.key,
-          content: op.content,
-          isCorrect: op.isCorrect,
-          sortOrder: so++,
-          createdById: params.userId,
-        }),
-      );
-    }
-  }
-
-  return group;
-}
+const MAIN_SEED_SOURCE_REF = 'run-seed-toeic-reading';
+const MAIN_SEED_META = { seed: 'toeic-reading-p567' };
 
 async function main() {
   const suffix = (process.env.SEED_CODE_SUFFIX ?? 'demo').replace(/[^a-zA-Z0-9_-]/g, '');
@@ -227,8 +52,37 @@ async function main() {
   await dataSource.initialize();
   console.log('DB connected.');
 
-  const userId = await resolveUserId(dataSource);
-  const tagsByCode = await ensureTags(dataSource, userId);
+  const userId = await resolveSeedUserId(dataSource);
+
+  const sampleP5Code = `SEED-${suffix}-P5-001`;
+  const examCodeEarly = `SEED-R567-${suffix}`;
+  const qgRepo = dataSource.getRepository(QuestionGroup);
+  const examRepoEarly = dataSource.getRepository(ExamTemplate);
+
+  const [existingGroup, existingExam] = await Promise.all([
+    qgRepo.findOne({ where: { code: sampleP5Code } }),
+    examRepoEarly.findOne({ where: { code: examCodeEarly } }),
+  ]);
+
+  if (existingGroup || existingExam) {
+    console.error(
+      '\n--- Seed dừng: trùng mã (đã chạy seed với cùng SEED_CODE_SUFFIX trước đó) ---',
+    );
+    if (existingGroup) {
+      console.error(`  - question_groups.code đã có: ${sampleP5Code}`);
+    }
+    if (existingExam) {
+      console.error(`  - exam_templates.code đã có: ${examCodeEarly}`);
+    }
+    console.error('\nChạy lại với hậu tố KHÁC, ví dụ PowerShell:');
+    console.error('  $env:SEED_CODE_SUFFIX="v2"; npm run seed:toeic-reading');
+    console.error('Hoặc CMD:');
+    console.error('  set SEED_CODE_SUFFIX=v2&& npm run seed:toeic-reading\n');
+    await dataSource.destroy();
+    process.exit(1);
+  }
+
+  const tagsByCode = await ensureReadingSeedTags(dataSource, userId);
 
   const p5Items = buildP5Items();
   const p6Passages = buildP6Passages();
@@ -237,15 +91,17 @@ async function main() {
   const p5Groups: QuestionGroup[] = [];
   for (let i = 0; i < p5Items.length; i++) {
     const mcq = p5Items[i];
-    const g = await saveGroupWithQuestions(dataSource, {
+    const g = await saveReadingQuestionGroup(dataSource, {
       userId,
       code: `SEED-${suffix}-P5-${String(i + 1).padStart(3, '0')}`,
       title: `P5 Incomplete — ${i + 1}`,
       part: QuestionPart.P5,
-      level: levelAt(i),
+      level: readingLevelAt(i),
       stem: null,
       tags: [tagsByCode['grammar:word_form'], tagsByCode['vocab:general']],
       questions: [mcq],
+      sourceRef: MAIN_SEED_SOURCE_REF,
+      seedMeta: MAIN_SEED_META,
     });
     p5Groups.push(g);
   }
@@ -253,15 +109,17 @@ async function main() {
   const p6Groups: QuestionGroup[] = [];
   for (let p = 0; p < p6Passages.length; p++) {
     const passage = p6Passages[p];
-    const g = await saveGroupWithQuestions(dataSource, {
+    const g = await saveReadingQuestionGroup(dataSource, {
       userId,
       code: `SEED-${suffix}-P6-${String(p + 1).padStart(2, '0')}`,
       title: `P6 Text completion — passage ${p + 1}`,
       part: QuestionPart.P6,
-      level: levelAt(p + 10),
+      level: readingLevelAt(p + 10),
       stem: passage.stem,
       tags: [tagsByCode['grammar:preposition'], tagsByCode['reading:detail']],
       questions: passage.items,
+      sourceRef: MAIN_SEED_SOURCE_REF,
+      seedMeta: MAIN_SEED_META,
     });
     p6Groups.push(g);
   }
@@ -269,15 +127,17 @@ async function main() {
   const p7Groups: QuestionGroup[] = [];
   for (let p = 0; p < p7Passages.length; p++) {
     const passage = p7Passages[p];
-    const g = await saveGroupWithQuestions(dataSource, {
+    const g = await saveReadingQuestionGroup(dataSource, {
       userId,
       code: `SEED-${suffix}-P7-${String(p + 1).padStart(2, '0')}`,
       title: `P7 Reading — set ${p + 1}`,
       part: QuestionPart.P7,
-      level: levelAt(p + 20),
+      level: readingLevelAt(p + 20),
       stem: passage.stem,
       tags: [tagsByCode['reading:detail'], tagsByCode['reading:inference']],
       questions: passage.items,
+      sourceRef: MAIN_SEED_SOURCE_REF,
+      seedMeta: MAIN_SEED_META,
     });
     p7Groups.push(g);
   }
@@ -290,14 +150,6 @@ async function main() {
 
   const examCode = `SEED-R567-${suffix}`;
   const examRepo = dataSource.getRepository(ExamTemplate);
-  const existing = await examRepo.findOne({ where: { code: examCode } });
-  if (existing) {
-    console.warn(
-      `Đã tồn tại exam_templates.code=${examCode} — xóa tay hoặc đổi SEED_CODE_SUFFIX rồi chạy lại.`,
-    );
-    await dataSource.destroy();
-    process.exit(1);
-  }
 
   const exam = examRepo.create({
     code: examCode,

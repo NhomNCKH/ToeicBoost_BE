@@ -147,6 +147,7 @@ export class AdminQuestionBankService {
       .createQueryBuilder('qg')
       .leftJoinAndSelect('qg.questionGroupTags', 'qgt')
       .leftJoinAndSelect('qgt.tag', 'tag')
+      .loadRelationCountAndMap('qg.questionCount', 'qg.questions')
       .where('qg.deletedAt IS NULL');
 
     if (query.part) qb.andWhere('qg.part = :part', { part: query.part });

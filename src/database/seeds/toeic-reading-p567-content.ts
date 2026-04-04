@@ -193,7 +193,271 @@ export function buildP5Items(): McqDef[] {
     },
   ];
 
-  return [...templates, ...extra].slice(0, 30);
+  const bulkP5More: McqDef[] = [
+    {
+      prompt:
+        'The revised handbook will be ------- to all departments by March 1.',
+      answerKey: 'B',
+      options: ['distribute', 'distributed', 'distributing', 'distribution'],
+    },
+    {
+      prompt: 'We expect the new line to ------- strong interest among retailers.',
+      answerKey: 'A',
+      options: ['generate', 'generous', 'generating', 'generative'],
+    },
+    {
+      prompt: 'The auditor found no ------- discrepancies in the quarterly accounts.',
+      answerKey: 'C',
+      options: ['significantly', 'signify', 'significant', 'signified'],
+    },
+    {
+      prompt: 'Please ------- your badge when you exit the secure area.',
+      answerKey: 'A',
+      options: ['return', 'returned', 'returning', 'returns'],
+    },
+    {
+      prompt: 'The keynote will begin ------- at 9:00 A.M.; late seating is limited.',
+      answerKey: 'A',
+      options: ['promptly', 'prompt', 'promptness', 'prompted'],
+    },
+    {
+      prompt: 'Ms. Nguyen is ------- regarded as an expert in supply chain analytics.',
+      answerKey: 'B',
+      options: ['wide', 'widely', 'width', 'widening'],
+    },
+    {
+      prompt: 'The facility complies ------- all federal environmental standards.',
+      answerKey: 'C',
+      options: ['for', 'on', 'with', 'to'],
+    },
+    {
+      prompt: 'Travel expenses must be ------- within ten business days.',
+      answerKey: 'D',
+      options: ['submission', 'submit', 'submitting', 'submitted'],
+    },
+    {
+      prompt: 'The board expressed ------- about the timeline for the rollout.',
+      answerKey: 'A',
+      options: ['concern', 'concerns', 'concerning', 'concerned'],
+    },
+    {
+      prompt: 'The software patch is designed to ------- known security vulnerabilities.',
+      answerKey: 'B',
+      options: ['address', 'addressing', 'addressed', 'addresses'],
+    },
+    {
+      prompt: 'No refunds will be issued ------- proof of purchase is provided.',
+      answerKey: 'C',
+      options: ['if', 'whether', 'unless', 'although'],
+    },
+    {
+      prompt: 'The warehouse operates ------- on weekends during peak season.',
+      answerKey: 'D',
+      options: ['extend', 'extended', 'extensive', 'extensively'],
+    },
+    {
+      prompt: 'Applicants must demonstrate ------- in written communication.',
+      answerKey: 'A',
+      options: ['proficiency', 'proficient', 'proficiently', 'proficiencies'],
+    },
+    {
+      prompt: 'The contract may be ------- if either party gives 30 days’ notice.',
+      answerKey: 'B',
+      options: ['terminate', 'terminated', 'terminating', 'terminator'],
+    },
+    {
+      prompt: 'We are pleased to ------- our partnership with Harbor Logistics.',
+      answerKey: 'C',
+      options: ['announcement', 'announcer', 'announce', 'announced'],
+    },
+    {
+      prompt: 'The elevator is temporarily out of service ------- further notice.',
+      answerKey: 'D',
+      options: ['expect', 'expected', 'expecting', 'pending'],
+    },
+    {
+      prompt: 'All vehicles must be ------- in designated visitor spaces.',
+      answerKey: 'A',
+      options: ['parked', 'parking', 'park', 'parks'],
+    },
+    {
+      prompt: 'The marketing brochure is still ------- review by the legal team.',
+      answerKey: 'A',
+      options: ['under', 'below', 'beneath', 'underneath'],
+    },
+    {
+      prompt: 'Customer feedback has been overwhelmingly -------.',
+      answerKey: 'C',
+      options: ['positivity', 'positively', 'positive', 'positives'],
+    },
+    {
+      prompt: 'The server migration was completed ------- ahead of schedule.',
+      answerKey: 'D',
+      options: ['success', 'succeed', 'successful', 'successfully'],
+    },
+    {
+      prompt: 'Employees may not ------- confidential data on personal devices.',
+      answerKey: 'A',
+      options: ['store', 'storage', 'stored', 'storing'],
+    },
+    {
+      prompt: 'The revised price list takes effect ------- the first of next month.',
+      answerKey: 'B',
+      options: ['in', 'on', 'at', 'by'],
+    },
+    {
+      prompt: 'We apologize for any confusion ------- by outdated instructions.',
+      answerKey: 'C',
+      options: ['cause', 'causes', 'caused', 'causing'],
+    },
+    {
+      prompt: 'The internship program offers hands-on ------- in project management.',
+      answerKey: 'D',
+      options: ['expose', 'exposed', 'exposing', 'exposure'],
+    },
+    {
+      prompt: 'The regional manager will ------- the quarterly results on Friday.',
+      answerKey: 'A',
+      options: ['present', 'presence', 'presented', 'presenting'],
+    },
+    {
+      prompt: 'All workstations must be ------- off at the end of each shift.',
+      answerKey: 'B',
+      options: ['shut', 'shuts', 'shutting', 'shutdown'],
+    },
+    {
+      prompt: 'The exhibit is free and open ------- the public.',
+      answerKey: 'C',
+      options: ['for', 'with', 'to', 'by'],
+    },
+    {
+      prompt: 'Ms. Ortiz has been ------- to oversee the rebranding campaign.',
+      answerKey: 'D',
+      options: ['assign', 'assigns', 'assigning', 'assigned'],
+    },
+    {
+      prompt: 'The parking garage will close ------- at 11 P.M.',
+      answerKey: 'A',
+      options: ['promptly', 'prompt', 'promptness', 'prompted'],
+    },
+    {
+      prompt: 'We recommend that you ------- your password every 90 days.',
+      answerKey: 'B',
+      options: ['change', 'changes', 'changing', 'changed'],
+    },
+    {
+      prompt: 'The factory output rose ------- compared with the same period last year.',
+      answerKey: 'C',
+      options: ['sharp', 'sharpen', 'sharply', 'sharpness'],
+    },
+    {
+      prompt: 'The agenda will be ------- to attendees 24 hours in advance.',
+      answerKey: 'C',
+      options: ['circulate', 'circulating', 'circulated', 'circulation'],
+    },
+    {
+      prompt: 'Neither the manager nor the assistants ------- present at the hearing.',
+      answerKey: 'A',
+      options: ['were', 'was', 'is', 'are'],
+    },
+    {
+      prompt: 'Each of the new hires ------- required to complete orientation.',
+      answerKey: 'B',
+      options: ['are', 'is', 'were', 'be'],
+    },
+    {
+      prompt: 'The data set, along with the charts, ------- stored on a secure server.',
+      answerKey: 'C',
+      options: ['are', 'were', 'is', 'have'],
+    },
+    {
+      prompt: 'If the client ------- the terms, we will proceed with the shipment.',
+      answerKey: 'B',
+      options: ['accept', 'accepts', 'accepting', 'accepted'],
+    },
+    {
+      prompt: 'The proposal, if approved, ------- additional funding for training.',
+      answerKey: 'A',
+      options: ['will secure', 'securing', 'secured', 'secures'],
+    },
+    {
+      prompt: 'By next June, the team ------- the new platform for six months.',
+      answerKey: 'B',
+      options: ['tests', 'will test', 'will have been testing', 'tested'],
+    },
+    {
+      prompt: 'The memo reminds staff that smoking is ------- on company grounds.',
+      answerKey: 'C',
+      options: ['allow', 'allows', 'prohibited', 'prohibiting'],
+    },
+    {
+      prompt: 'We would appreciate ------- if you could send the files today.',
+      answerKey: 'D',
+      options: ['that', 'this', 'its', 'it'],
+    },
+    {
+      prompt: 'The more detailed the report is, ------- useful it will be.',
+      answerKey: 'A',
+      options: ['the more', 'more', 'most', 'the most'],
+    },
+    {
+      prompt: 'The consultant suggested ------- the launch by one week.',
+      answerKey: 'B',
+      options: ['delay', 'delaying', 'delayed', 'delays'],
+    },
+    {
+      prompt: 'There ------- several reasons for the decline in foot traffic.',
+      answerKey: 'C',
+      options: ['is', 'was', 'are', 'has'],
+    },
+    {
+      prompt: 'The equipment should ------- inspected before each shift.',
+      answerKey: 'D',
+      options: ['be', 'been', 'being', 'is'],
+    },
+    {
+      prompt: 'She is interested ------- joining the cross-functional task force.',
+      answerKey: 'A',
+      options: ['in', 'on', 'for', 'at'],
+    },
+    {
+      prompt: 'The results were surprising ------- everyone on the committee.',
+      answerKey: 'B',
+      options: ['for', 'to', 'with', 'by'],
+    },
+    {
+      prompt: 'We look forward ------- your reply at your earliest convenience.',
+      answerKey: 'C',
+      options: ['for', 'in', 'to', 'at'],
+    },
+    {
+      prompt: 'The policy applies ------- all contractors, without exception.',
+      answerKey: 'D',
+      options: ['in', 'on', 'at', 'to'],
+    },
+    {
+      prompt: 'The museum is located ------- the river, near the old courthouse.',
+      answerKey: 'A',
+      options: ['beside', 'besides', 'between', 'among'],
+    },
+    {
+      prompt: 'Please forward this message ------- anyone who has not responded.',
+      answerKey: 'B',
+      options: ['for', 'to', 'with', 'by'],
+    },
+    {
+      prompt: 'The discount is valid ------- supplies last.',
+      answerKey: 'A',
+      options: ['while', 'until', 'whenever', 'before'],
+    },
+    {
+      prompt: 'The offer is valid only ------- stated on the certificate.',
+      answerKey: 'A',
+      options: ['as', 'like', 'than', 'so'],
+    },
+  ];
+
+  return [...templates, ...extra, ...bulkP5More];
 }
 
 /** P6: 4 passage — mỗi passage 1 nhóm 4 câu (16 câu) */
@@ -299,10 +563,64 @@ export function buildP6Passages(): { stem: string; items: McqDef[] }[] {
         },
       ],
     },
+    {
+      stem: `The Riverside Café will begin serving breakfast at 6:30 A.M. on weekdays. ------- (1) -------, lunch specials will be posted on the chalkboard near the register. Employees who use payroll deduction should ------- (2) ------- their ID cards at checkout. ------- (3) -------, gratuities are not included in posted prices. Management thanks you for your continued ------- (4) -------.`,
+      items: [
+        { prompt: '(1)', answerKey: 'C', options: ['However', 'Although', 'In addition', 'Unless'] },
+        { prompt: '(2)', answerKey: 'A', options: ['scan', 'scans', 'scanning', 'scanner'] },
+        { prompt: '(3)', answerKey: 'B', options: ['Final', 'Finally', 'Finalize', 'Finalized'] },
+        { prompt: '(4)', answerKey: 'D', options: ['patron', 'patronize', 'patronizing', 'patronage'] },
+      ],
+    },
+    {
+      stem: `Global Freight Solutions is ------- (1) ------- a pilot program for same-day delivery in Metro City. Participating customers will receive tracking links by SMS. ------- (2) -------, oversized packages may require an additional handling fee. Drivers will ------- (3) ------- photo confirmation upon delivery. For questions, please ------- (4) ------- the customer care hotline.`,
+      items: [
+        { prompt: '(1)', answerKey: 'B', options: ['launch', 'launching', 'launched', 'launcher'] },
+        { prompt: '(2)', answerKey: 'A', options: ['However', 'Therefore', 'Moreover', 'Meanwhile'] },
+        { prompt: '(3)', answerKey: 'A', options: ['obtain', 'obtains', 'obtaining', 'obtained'] },
+        { prompt: '(4)', answerKey: 'A', options: ['call', 'calls', 'calling', 'called'] },
+      ],
+    },
+    {
+      stem: `The employee wellness fair will take place in the atrium on Friday. Flu shots will be offered free of charge. ------- (1) -------, biometric screenings require a signed consent form. ------- (2) ------- should register online to reserve a time slot. Light refreshments will be ------- (3) ------- outside Conference Room B. We encourage everyone to take advantage of these ------- (4) -------.`,
+      items: [
+        { prompt: '(1)', answerKey: 'D', options: ['Besides', 'Thus', 'Instead', 'However'] },
+        { prompt: '(2)', answerKey: 'B', options: ['Participant', 'Participants', 'Participate', 'Participation'] },
+        { prompt: '(3)', answerKey: 'A', options: ['served', 'serve', 'serving', 'server'] },
+        { prompt: '(4)', answerKey: 'B', options: ['benefit', 'benefits', 'beneficial', 'beneficiary'] },
+      ],
+    },
+    {
+      stem: `Starting next month, invoices will be issued in PDF format only. Paper copies will no longer be mailed ------- (1) ------- they are specifically requested. Accounts payable asks vendors to ------- (2) ------- purchase order numbers on every invoice. ------- (3) -------, payments may be delayed if documentation is incomplete. We appreciate your ------- (4) ------- with this policy.`,
+      items: [
+        { prompt: '(1)', answerKey: 'C', options: ['if', 'whether', 'unless', 'although'] },
+        { prompt: '(2)', answerKey: 'A', options: ['include', 'included', 'including', 'inclusive'] },
+        { prompt: '(3)', answerKey: 'A', options: ['Otherwise', 'Moreover', 'Because', 'While'] },
+        { prompt: '(4)', answerKey: 'C', options: ['comply', 'complies', 'compliance', 'complicated'] },
+      ],
+    },
+    {
+      stem: `The Lakeside Hotel is undergoing renovations to improve accessibility. ------- (1) -------, the pool will close for two weeks in April. Guests with existing reservations will be ------- (2) ------- by email if their stay is affected. ------- (3) -------, alternative fitness passes can be picked up at the front desk. We apologize for any ------- (4) ------- this may cause.`,
+      items: [
+        { prompt: '(1)', answerKey: 'B', options: ['Nevertheless', 'Specifically', 'Likewise', 'Hence'] },
+        { prompt: '(2)', answerKey: 'C', options: ['notify', 'notifies', 'notified', 'notification'] },
+        { prompt: '(3)', answerKey: 'A', options: ['Meanwhile', 'Although', 'Unless', 'Despite'] },
+        { prompt: '(4)', answerKey: 'D', options: ['convenient', 'convenience', 'inconvenience', 'conveniently'] },
+      ],
+    },
+    {
+      stem: `The research grant application deadline is April 30. Proposals must ------- (1) ------- a detailed budget appendix. ------- (2) -------, teams should list all external collaborators. Late submissions will not be ------- (3) ------- under any circumstances. Award notifications will be sent ------- (4) ------- May 15.`,
+      items: [
+        { prompt: '(1)', answerKey: 'A', options: ['include', 'inclusive', 'including', 'included'] },
+        { prompt: '(2)', answerKey: 'D', options: ['Furthermore', 'Although', 'Unless', 'Instead'] },
+        { prompt: '(3)', answerKey: 'B', options: ['accept', 'accepted', 'accepting', 'acceptance'] },
+        { prompt: '(4)', answerKey: 'C', options: ['by', 'on', 'before', 'since'] },
+      ],
+    },
   ];
 }
 
-/** P7: 6 passage ngắn — mỗi nhóm 4 câu (24 câu) */
+/** P7: passage ngắn — 6 nhóm × 4 câu (24 câu). Thêm 9 nhóm chuẩn → chạy `seed:toeic-reading-p7-extra`. */
 export function buildP7Passages(): { stem: string; items: McqDef[] }[] {
   const stems = [
     `Email — Subject: Revised itinerary\n\nDear Travel Team,\nPlease note that the client meeting in Denver has been moved from Tuesday to Wednesday. The hotel reservation has been updated accordingly. If anyone needs to adjust flight arrangements, contact procurement by noon tomorrow.\n\nBest regards,\nLena Ortiz`,
