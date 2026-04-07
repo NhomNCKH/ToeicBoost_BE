@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Param, Post, Put } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles } from '@common/decorators/roles.decorator';
 import { UserInfo } from '@common/decorators/user-info.decorator';
 import { UserRole } from '@common/constants/user.enum';
 import { IJwtPayload } from '@common/interfaces/jwt-payload.interface';
 import {
+  LearnerExamAttemptHistoryQueryDto,
   SaveExamAttemptAnswersDto,
   StartExamAttemptDto,
   SubmitExamAttemptDto,
@@ -25,6 +26,15 @@ export class ExamAttemptController {
     @UserInfo() userInfo: IJwtPayload,
   ): Promise<unknown> {
     return this.examAttemptService.startAttempt(dto, userInfo.sub);
+  }
+
+  @Get('history')
+  @ApiOperation({ summary: 'Lay lich su lam bai cua learner' })
+  listAttemptHistory(
+    @Query() query: LearnerExamAttemptHistoryQueryDto,
+    @UserInfo() userInfo: IJwtPayload,
+  ): Promise<unknown> {
+    return this.examAttemptService.listAttemptHistory(query, userInfo.sub);
   }
 
   @Put(':id/answers')

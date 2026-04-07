@@ -19,7 +19,7 @@ export const APP_CONSTANTS = {
   READING_QUESTIONS: 100,
   TOEIC_MAX_DOMAIN_SCORE: 495,
   CERTIFICATE_PASS_THRESHOLD: 500,
-  EXAM_SCORING_VERSION: 'toeic-proportional-v1',
+  EXAM_SCORING_VERSION: 'toeic-conversion-table-v2',
 } as const;
 
 export const TOEIC_PARTS = {
