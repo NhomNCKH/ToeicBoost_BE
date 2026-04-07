@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsEnum,
   IsISO8601,
   IsObject,
@@ -14,6 +15,7 @@ import {
 import { Type } from 'class-transformer';
 import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
 import { TemplateMode } from '@common/constants/exam-template.enum';
+import { ExamAttemptStatus } from '@common/constants/assessment.enum';
 
 export class LearnerExamTemplateQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({ enum: TemplateMode })
@@ -27,6 +29,18 @@ export class LearnerExamTemplateQueryDto extends PaginationQueryDto {
   keyword?: string;
 }
 
+export class LearnerExamAttemptHistoryQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  examTemplateId?: string;
+
+  @ApiPropertyOptional({ enum: ExamAttemptStatus })
+  @IsOptional()
+  @IsEnum(ExamAttemptStatus)
+  status?: ExamAttemptStatus;
+}
+
 export class StartExamAttemptDto {
   @ApiProperty({
     description: 'ID cua mau de thi da publish',
@@ -34,6 +48,15 @@ export class StartExamAttemptDto {
   })
   @IsUUID()
   examTemplateId: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Tao mot lan thi moi, dong phien dang do neu can thay vi resume lai phien cu',
+    example: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  forceNew?: boolean;
 
   @ApiPropertyOptional({
     description: 'Metadata bo sung khi bat dau lam bai',

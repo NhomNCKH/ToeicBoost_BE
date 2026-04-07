@@ -1,0 +1,124 @@
+name: Production Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: 22
+          script: |
+            set -e
+
+            APP_DIR="/var/www/toeicai/ToeicBoost_BE"
+
+            echo "🚀 Starting deployment..."
+
+            if [ -d "$APP_DIR" ]; then
+              cd "$APP_DIR"
+              git fetch origin
+              git reset --hard origin/main
+            else
+              mkdir -p /var/www/toeicai
+              cd /var/www/toeicai
+              git clone https://github.com/NhomNCKH/ToeicBoost_BE.git ToeicBoost_BE
+              cd ToeicBoost_BE
+            fi
+
+            TEMP_ENV_FILE="$(mktemp)"
+            cat > "$TEMP_ENV_FILE" << 'EOF'
+            ${{ secrets.PRODUCTION_ENV_FILE }}
+            EOF
+
+            if grep -q '[^[:space:]]' "$TEMP_ENV_FILE"; then
+              mv "$TEMP_ENV_FILE" .env.production
+            else
+              rm -f "$TEMP_ENV_FILE"
+            fi
+
+            if [ ! -f ".env.production" ]; then
+              echo "❌ Missing .env.production"
+              exit 1
+            fi
+
+            echo "🧹 Cleaning old runtime leftovers..."
+            pm2 delete toeicai-backend >/dev/null 2>&1 || true
+            pm2 save >/dev/null 2>&1 || true
+
+            docker compose -f docker-compose.production.yml down --remove-orphans || true
+            docker rm -f toeic-nginx-prod toeic-api-prod >/dev/null 2>&1 || true
+
+            echo "🏗️ Building and starting production stack..."
+            docker compose -f docker-compose.production.yml up -d --build --remove-orphans
+
+            echo "⏳ Waiting for API to become healthy..."
+            for i in $(seq 1 20); do
+              if docker inspect toeic-api-prod --format '{{.State.Health.Status}}' 2>/dev/null | grep -q healthy; then
+                break
+              fi
+              sleep 5
+            done
+
+            if ! docker inspect toeic-api-prod --format '{{.State.Health.Status}}' 2>/dev/null | grep -q healthy; then
+              echo "❌ API container did not become healthy"
+              docker logs --tail 100 toeic-api-prod || true
+              exit 1
+            fi
+
+            echo "🏥 Loopback API health check:"
+            curl -fsS http://127.0.0.1:3001/health
+
+            echo "🗃️ Running database migrations..."
+            docker exec toeic-api-prod npm run migration:run
+
+            if ! command -v nginx >/dev/null 2>&1; then
+              apt-get update
+              apt-get install -y nginx
+            fi
+
+            install -d /etc/nginx/sites-available /etc/nginx/sites-enabled
+            cp nginx/toeicboost.conf /etc/nginx/sites-available/toeicboost.conf
+            ln -sf /etc/nginx/sites-available/toeicboost.conf /etc/nginx/sites-enabled/toeicboost.conf
+            rm -f /etc/nginx/conf.d/toeicboost.conf
+            rm -f /etc/nginx/sites-enabled/default
+            nginx -t
+            systemctl enable nginx
+            systemctl restart nginx
+
+            echo "🔍 Final container status:"
+            docker compose -f docker-compose.production.yml ps
+
+            echo ""
+            echo "🌐 Final network status:"
+            ss -tulpn | grep -E "(:80|127.0.0.1:3001|:5433)" || true
+
+            echo "🌐 Host Nginx health check:"
+            curl -fsS http://localhost/health
+
+            echo ""
+            echo "📚 Docs check:"
+            curl -fsSI http://localhost/api/v1/docs | head -1
+
+            echo ""
+            echo "📋 API logs:"
+            docker logs --tail 20 toeic-api-prod
+
+            echo ""
+            echo "📋 Host Nginx logs:"
+            journalctl -u nginx -n 20 --no-pager || true
+
+            echo "✅ Deployment completed!"

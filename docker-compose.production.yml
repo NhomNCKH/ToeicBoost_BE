@@ -5,9 +5,9 @@ services:
       dockerfile: Dockerfile
       target: production
     container_name: toeic-api-prod
-    restart: unless-stopped
     env_file:
       - .env.production
+    restart: unless-stopped
     ports:
       - '127.0.0.1:3001:3001'
     healthcheck:

@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { APP_CONSTANTS } from '@common/constants/app.constant';
 import { ExamAttemptStatus } from '@common/constants/assessment.enum';
 import { TemplateStatus } from '@common/constants/exam-template.enum';
@@ -12,6 +12,7 @@ import { QuestionPart } from '@common/constants/question-bank.enum';
 import { CredentialRequest } from '@modules/admin/credential/entities/credential-request.entity';
 import { ExamTemplate } from '@modules/admin/exam-template/entities/exam-template.entity';
 import {
+  LearnerExamAttemptHistoryQueryDto,
   LearnerExamTemplateQueryDto,
   SaveExamAttemptAnswersDto,
   StartExamAttemptDto,
@@ -21,6 +22,27 @@ import { ExamAttemptAnswer } from './entities/exam-attempt-answer.entity';
 import { ExamAttemptPartScore } from './entities/exam-attempt-part-score.entity';
 import { ExamAttempt } from './entities/exam-attempt.entity';
 import { CredentialEligibilityService } from './credential-eligibility.service';
+
+type ToeicDomain = 'listening' | 'reading';
+
+const TOEIC_LISTENING_SCORE_TABLE = [
+  5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 10, 15, 20, 25, 30,
+  35, 40, 45, 50, 55, 60, 70, 80, 85, 90, 95, 100, 105, 115, 125, 135, 140,
+  150, 160, 170, 175, 180, 190, 200, 205, 215, 220, 225, 230, 235, 245, 255,
+  260, 265, 275, 285, 290, 295, 300, 310, 320, 325, 330, 335, 340, 345, 350,
+  355, 360, 365, 370, 375, 385, 395, 400, 405, 415, 420, 425, 430, 435, 440,
+  445, 455, 460, 465, 475, 480, 485, 490, 495, 495, 495, 495, 495, 495, 495,
+  495,
+] as const;
+
+const TOEIC_READING_SCORE_TABLE = [
+  5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 10, 15,
+  20, 25, 30, 35, 40, 45, 55, 60, 65, 70, 75, 80, 85, 90, 95, 105, 115, 120,
+  125, 130, 135, 140, 145, 155, 160, 170, 175, 185, 195, 205, 210, 215, 220,
+  230, 240, 245, 250, 255, 260, 270, 275, 280, 285, 290, 295, 295, 300, 310,
+  315, 320, 325, 330, 335, 340, 345, 355, 360, 370, 375, 385, 390, 395, 405,
+  415, 420, 425, 435, 440, 450, 455, 460, 470, 475, 485, 485, 490, 495,
+] as const;
 
 interface AttemptOptionSnapshot {
   optionKey: string;
@@ -44,6 +66,7 @@ interface AttemptQuestionSnapshot {
 interface AttemptAssetSnapshot {
   id: string;
   kind: string;
+  storageKey: string | null;
   publicUrl: string | null;
   mimeType: string | null;
   durationSec: number | null;
@@ -103,6 +126,30 @@ interface SnapshotQuestionContext {
   section: AttemptSectionSnapshot;
   item: AttemptItemSnapshot;
   question: AttemptQuestionSnapshot;
+}
+
+interface AttemptPartScoreComputation {
+  sectionOrder: number;
+  questionCount: number;
+  correctCount: number;
+  rawScore: number;
+  scaledScore: number;
+  durationSec: number;
+}
+
+interface AttemptScoreComputation {
+  answeredCount: number;
+  correctCount: number;
+  listeningCorrectCount: number;
+  readingCorrectCount: number;
+  listeningQuestionCount: number;
+  readingQuestionCount: number;
+  listeningRawScore: number;
+  readingRawScore: number;
+  listeningScaledScore: number;
+  readingScaledScore: number;
+  totalScore: number;
+  partStats: Map<QuestionPart, AttemptPartScoreComputation>;
 }
 
 @Injectable()
@@ -170,6 +217,90 @@ export class ExamAttemptService {
       }));
   }
 
+  async listAttemptHistory(
+    query: LearnerExamAttemptHistoryQueryDto,
+    userId: string,
+  ) {
+    const qb = this.examAttemptRepository
+      .createQueryBuilder('attempt')
+      .innerJoin('attempt.examTemplate', 'template')
+      .where('attempt.userId = :userId', { userId });
+
+    if (query.examTemplateId) {
+      qb.andWhere('attempt.examTemplateId = :examTemplateId', {
+        examTemplateId: query.examTemplateId,
+      });
+    }
+
+    if (query.status) {
+      qb.andWhere('attempt.status = :status', { status: query.status });
+    }
+
+    qb.select([
+      'attempt.id',
+      'attempt.examTemplateId',
+      'attempt.attemptNo',
+      'attempt.status',
+      'attempt.startedAt',
+      'attempt.submittedAt',
+      'attempt.gradedAt',
+      'attempt.durationSec',
+      'attempt.totalQuestions',
+      'attempt.answeredCount',
+      'attempt.correctCount',
+      'attempt.listeningScaledScore',
+      'attempt.readingScaledScore',
+      'attempt.totalScore',
+      'attempt.passed',
+      'template.id',
+      'template.code',
+      'template.name',
+      'template.mode',
+      'template.totalDurationSec',
+    ]);
+
+    return qb
+      .orderBy('attempt.submittedAt', 'DESC', 'NULLS LAST')
+      .addOrderBy('attempt.startedAt', 'DESC')
+      .skip(((query.page ?? 1) - 1) * (query.limit ?? 20))
+      .take(query.limit ?? 20)
+      .getManyAndCount()
+      .then(([data, total]) => ({
+        data: data.map((attempt) => ({
+          id: attempt.id,
+          examTemplateId: attempt.examTemplateId,
+          attemptNo: attempt.attemptNo,
+          status: attempt.status,
+          startedAt: attempt.startedAt,
+          submittedAt: attempt.submittedAt,
+          gradedAt: attempt.gradedAt,
+          durationSec: attempt.durationSec,
+          totalQuestions: attempt.totalQuestions,
+          answeredCount: attempt.answeredCount,
+          correctCount: attempt.correctCount,
+          listeningScaledScore: Number(attempt.listeningScaledScore),
+          readingScaledScore: Number(attempt.readingScaledScore),
+          totalScore: Number(attempt.totalScore),
+          passed: attempt.passed,
+          template: attempt.examTemplate
+            ? {
+                id: attempt.examTemplate.id,
+                code: attempt.examTemplate.code,
+                name: attempt.examTemplate.name,
+                mode: attempt.examTemplate.mode,
+                totalDurationSec: attempt.examTemplate.totalDurationSec,
+              }
+            : null,
+        })),
+        pagination: {
+          page: query.page ?? 1,
+          limit: query.limit ?? 20,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / Math.max(query.limit ?? 20, 1))),
+        },
+      }));
+  }
+
   async startAttempt(dto: StartExamAttemptDto, userId: string) {
     const existingAttempt = await this.examAttemptRepository.findOne({
       where: {
@@ -181,7 +312,22 @@ export class ExamAttemptService {
     });
 
     if (existingAttempt) {
-      return this.getAttemptSession(existingAttempt.id, userId, true);
+      const shouldCloseExistingAttempt =
+        dto.forceNew || this.isAttemptExpired(existingAttempt);
+
+      if (!shouldCloseExistingAttempt) {
+        return this.getAttemptSession(existingAttempt.id, userId, true);
+      }
+
+      await this.submitAttempt(
+        existingAttempt.id,
+        {
+          metadata: {
+            source: dto.forceNew ? 'force-new-start' : 'auto-expire-on-start',
+          },
+        },
+        userId,
+      );
     }
 
     const template = await this.loadPublishedTemplate(dto.examTemplateId);
@@ -221,82 +367,104 @@ export class ExamAttemptService {
     dto: SaveExamAttemptAnswersDto,
     userId: string,
   ) {
-    const attempt = await this.examAttemptRepository.findOne({
-      where: { id: attemptId, userId },
-    });
-
-    if (!attempt) {
-      throw new NotFoundException('Khong tim thay phien lam bai');
-    }
-
-    if (attempt.status !== ExamAttemptStatus.IN_PROGRESS) {
-      throw new BadRequestException('Chi duoc luu dap an khi bai thi dang mo');
-    }
-
     this.ensureUniqueQuestionIds(dto.answers.map((item) => item.questionId));
 
-    const snapshot = this.getSnapshot(attempt);
-    const questionIndex = this.buildSnapshotQuestionIndex(snapshot);
-    const existingAnswers = await this.examAttemptAnswerRepository.find({
-      where: { examAttemptId: attempt.id },
-    });
-    const existingMap = new Map(
-      existingAnswers.map((answer) => [answer.questionId, answer]),
-    );
+    return this.dataSource.transaction(async (manager) => {
+      const attempt = await manager
+        .getRepository(ExamAttempt)
+        .createQueryBuilder('attempt')
+        .setLock('pessimistic_write')
+        .where('attempt.id = :attemptId', { attemptId })
+        .andWhere('attempt.userId = :userId', { userId })
+        .getOne();
 
-    const toSave: ExamAttemptAnswer[] = [];
-    const toDeleteIds: string[] = [];
-
-    for (const input of dto.answers) {
-      const questionContext = questionIndex.get(input.questionId);
-      if (!questionContext) {
-        throw new BadRequestException(
-          `Cau hoi khong thuoc phien lam bai: ${input.questionId}`,
-        );
+      if (!attempt) {
+        throw new NotFoundException('Khong tim thay phien lam bai');
       }
 
-      const selectedOption = this.resolveSelectedOption(
-        questionContext.question,
-        input.selectedOptionKey,
+      if (attempt.status !== ExamAttemptStatus.IN_PROGRESS) {
+        throw new BadRequestException('Chi duoc luu dap an khi bai thi dang mo');
+      }
+
+      const snapshot = this.getSnapshot(attempt);
+      const questionIndex = this.buildSnapshotQuestionIndex(snapshot);
+      const inputQuestionIds = dto.answers.map((item) => item.questionId);
+      const existingAnswers =
+        inputQuestionIds.length > 0
+          ? await manager.getRepository(ExamAttemptAnswer).find({
+              where: {
+                examAttemptId: attempt.id,
+                questionId: In(inputQuestionIds),
+              },
+            })
+          : [];
+      const existingMap = new Map(
+        existingAnswers.map((answer) => [answer.questionId, answer]),
       );
+      let answeredCount =
+        typeof attempt.answeredCount === 'number'
+          ? attempt.answeredCount
+          : await manager.getRepository(ExamAttemptAnswer).count({
+              where: { examAttemptId: attempt.id },
+            });
 
-      const existing = existingMap.get(input.questionId);
-      if (!selectedOption) {
-        if (existing) {
-          toDeleteIds.push(existing.id);
+      const toSave: ExamAttemptAnswer[] = [];
+      const toDeleteIds: string[] = [];
+
+      for (const input of dto.answers) {
+        const questionContext = questionIndex.get(input.questionId);
+        if (!questionContext) {
+          throw new BadRequestException(
+            `Cau hoi khong thuoc phien lam bai: ${input.questionId}`,
+          );
         }
-        continue;
+
+        const selectedOption = this.resolveSelectedOption(
+          questionContext.question,
+          input.selectedOptionKey,
+        );
+
+        const existing = existingMap.get(input.questionId);
+        if (!selectedOption) {
+          if (existing) {
+            toDeleteIds.push(existing.id);
+            answeredCount = Math.max(answeredCount - 1, 0);
+          }
+          continue;
+        }
+
+        if (!existing) {
+          answeredCount += 1;
+        }
+
+        const answerEntity =
+          existing ??
+          manager.getRepository(ExamAttemptAnswer).create({
+            createdById: userId,
+            examAttemptId: attempt.id,
+            questionGroupId: questionContext.item.questionGroupId,
+            questionId: questionContext.question.id,
+            part: questionContext.section.part,
+            questionNo: questionContext.question.questionNo,
+          });
+
+        answerEntity.selectedOptionKey = selectedOption.optionKey;
+        answerEntity.selectedOptionSnapshot = {
+          optionKey: selectedOption.optionKey,
+          content: selectedOption.content,
+          sortOrder: selectedOption.sortOrder,
+        };
+        answerEntity.answeredAt = input.answeredAt
+          ? new Date(input.answeredAt)
+          : new Date();
+        answerEntity.timeSpentSec =
+          typeof input.timeSpentSec === 'number' ? input.timeSpentSec : null;
+        answerEntity.answerPayload = input.answerPayload ?? {};
+        answerEntity.metadata = answerEntity.metadata ?? {};
+
+        toSave.push(answerEntity);
       }
 
-      const answerEntity =
-        existing ??
-        this.examAttemptAnswerRepository.create({
-          createdById: userId,
-          examAttemptId: attempt.id,
-          questionGroupId: questionContext.item.questionGroupId,
-          questionId: questionContext.question.id,
-          part: questionContext.section.part,
-          questionNo: questionContext.question.questionNo,
-        });
-
-      answerEntity.selectedOptionKey = selectedOption.optionKey;
-      answerEntity.selectedOptionSnapshot = {
-        optionKey: selectedOption.optionKey,
-        content: selectedOption.content,
-        sortOrder: selectedOption.sortOrder,
-      };
-      answerEntity.answeredAt = input.answeredAt
-        ? new Date(input.answeredAt)
-        : new Date();
-      answerEntity.timeSpentSec =
-        typeof input.timeSpentSec === 'number' ? input.timeSpentSec : null;
-      answerEntity.answerPayload = input.answerPayload ?? {};
-      answerEntity.metadata = answerEntity.metadata ?? {};
-
-      toSave.push(answerEntity);
-    }
-
-    await this.dataSource.transaction(async (manager) => {
       if (toDeleteIds.length > 0) {
         await manager.getRepository(ExamAttemptAnswer).delete(toDeleteIds);
       }
@@ -305,29 +473,19 @@ export class ExamAttemptService {
         await manager.getRepository(ExamAttemptAnswer).save(toSave);
       }
 
-      const answeredCount = await manager
-        .getRepository(ExamAttemptAnswer)
-        .count({
-          where: { examAttemptId: attempt.id },
-        });
-
       await manager.getRepository(ExamAttempt).update(attempt.id, {
         answeredCount,
       });
-    });
 
-    const refreshedAttempt = await this.examAttemptRepository.findOneOrFail({
-      where: { id: attempt.id },
+      return {
+        attemptId: attempt.id,
+        status: attempt.status,
+        answeredCount,
+        totalQuestions: attempt.totalQuestions,
+        savedAnswers: toSave.length,
+        clearedAnswers: toDeleteIds.length,
+      };
     });
-
-    return {
-      attemptId: refreshedAttempt.id,
-      status: refreshedAttempt.status,
-      answeredCount: refreshedAttempt.answeredCount,
-      totalQuestions: refreshedAttempt.totalQuestions,
-      savedAnswers: toSave.length,
-      clearedAnswers: toDeleteIds.length,
-    };
   }
 
   async submitAttempt(
@@ -367,84 +525,7 @@ export class ExamAttemptService {
         answers.map((answer) => [answer.questionId, answer]),
       );
 
-      let answeredCount = 0;
-      let correctCount = 0;
-      let listeningAvailableWeight = 0;
-      let readingAvailableWeight = 0;
-      let listeningRawScore = 0;
-      let readingRawScore = 0;
-
-      const partStats = new Map<
-        QuestionPart,
-        {
-          sectionOrder: number;
-          questionCount: number;
-          correctCount: number;
-          rawScore: number;
-          scaledScore: number;
-          durationSec: number;
-        }
-      >();
-
-      for (const questionContext of questionIndex.values()) {
-        const scoreWeight = Number(questionContext.question.scoreWeight ?? 1);
-        const answer = answerMap.get(questionContext.question.id);
-        const isCorrect =
-          answer?.selectedOptionKey === questionContext.question.answerKey;
-        const scoreAwarded = isCorrect ? scoreWeight : 0;
-
-        if (answer) {
-          answeredCount += 1;
-          answer.isCorrect = isCorrect;
-          answer.scoreWeightSnapshot = this.toNumericString(scoreWeight);
-          answer.scoreAwarded = this.toNumericString(scoreAwarded);
-        }
-
-        if (isCorrect) {
-          correctCount += 1;
-        }
-
-        const domain = this.getPartDomain(questionContext.section.part);
-        if (domain === 'listening') {
-          listeningAvailableWeight += scoreWeight;
-          listeningRawScore += scoreAwarded;
-        } else {
-          readingAvailableWeight += scoreWeight;
-          readingRawScore += scoreAwarded;
-        }
-
-        const currentPart = partStats.get(questionContext.section.part) ?? {
-          sectionOrder: questionContext.section.sectionOrder,
-          questionCount: 0,
-          correctCount: 0,
-          rawScore: 0,
-          scaledScore: 0,
-          durationSec: 0,
-        };
-
-        currentPart.questionCount += 1;
-        currentPart.rawScore += scoreAwarded;
-        currentPart.correctCount += isCorrect ? 1 : 0;
-        currentPart.durationSec += answer?.timeSpentSec ?? 0;
-        partStats.set(questionContext.section.part, currentPart);
-      }
-
-      const listeningScaledScore = this.scaleDomainScore(
-        listeningRawScore,
-        listeningAvailableWeight,
-      );
-      const readingScaledScore = this.scaleDomainScore(
-        readingRawScore,
-        readingAvailableWeight,
-      );
-
-      for (const [part, stats] of partStats.entries()) {
-        const domainWeight =
-          this.getPartDomain(part) === 'listening'
-            ? listeningAvailableWeight
-            : readingAvailableWeight;
-        stats.scaledScore = this.scaleDomainScore(stats.rawScore, domainWeight);
-      }
+      const scoring = this.computeAttemptScoring(snapshot, answers);
 
       const submittedAt = new Date();
       const durationSec = Math.max(
@@ -453,7 +534,6 @@ export class ExamAttemptService {
         ),
         0,
       );
-      const totalScore = listeningScaledScore + readingScaledScore;
 
       if (answers.length > 0) {
         await manager.getRepository(ExamAttemptAnswer).save(answers);
@@ -463,7 +543,7 @@ export class ExamAttemptService {
         .getRepository(ExamAttemptPartScore)
         .delete({ examAttemptId: attempt.id });
 
-      const partScoreEntities = [...partStats.entries()].map(([part, stats]) =>
+      const partScoreEntities = [...scoring.partStats.entries()].map(([part, stats]) =>
         manager.getRepository(ExamAttemptPartScore).create({
           createdById: attempt.userId,
           examAttemptId: attempt.id,
@@ -488,38 +568,45 @@ export class ExamAttemptService {
       attempt.submittedAt = submittedAt;
       attempt.gradedAt = submittedAt;
       attempt.durationSec = durationSec;
-      attempt.answeredCount = answeredCount;
-      attempt.correctCount = correctCount;
-      attempt.listeningRawScore = this.toNumericString(listeningRawScore);
-      attempt.readingRawScore = this.toNumericString(readingRawScore);
-      attempt.listeningScaledScore = this.toNumericString(listeningScaledScore);
-      attempt.readingScaledScore = this.toNumericString(readingScaledScore);
-      attempt.totalScore = this.toNumericString(totalScore);
-      attempt.passed = totalScore >= attempt.passThresholdSnapshot;
+      attempt.answeredCount = scoring.answeredCount;
+      attempt.correctCount = scoring.correctCount;
+      attempt.listeningRawScore = this.toNumericString(scoring.listeningRawScore);
+      attempt.readingRawScore = this.toNumericString(scoring.readingRawScore);
+      attempt.listeningScaledScore = this.toNumericString(
+        scoring.listeningScaledScore,
+      );
+      attempt.readingScaledScore = this.toNumericString(
+        scoring.readingScaledScore,
+      );
+      attempt.totalScore = this.toNumericString(scoring.totalScore);
+      attempt.passed = scoring.totalScore >= attempt.passThresholdSnapshot;
+      attempt.scoringVersion = APP_CONSTANTS.EXAM_SCORING_VERSION;
       attempt.metadata = {
         ...(attempt.metadata ?? {}),
         ...(dto.metadata ?? {}),
       };
       attempt.resultPayload = {
         listening: {
-          rawScore: listeningRawScore,
-          scaledScore: listeningScaledScore,
+          rawScore: scoring.listeningRawScore,
+          scaledScore: scoring.listeningScaledScore,
           maxScore: APP_CONSTANTS.TOEIC_MAX_DOMAIN_SCORE,
         },
         reading: {
-          rawScore: readingRawScore,
-          scaledScore: readingScaledScore,
+          rawScore: scoring.readingRawScore,
+          scaledScore: scoring.readingScaledScore,
           maxScore: APP_CONSTANTS.TOEIC_MAX_DOMAIN_SCORE,
         },
-        answeredCount,
-        correctCount,
+        answeredCount: scoring.answeredCount,
+        correctCount: scoring.correctCount,
         totalQuestions: attempt.totalQuestions,
       };
 
       await attemptRepository.save(attempt);
       await this.credentialEligibilityService.evaluateAttempt(manager, attempt);
 
-      return this.getAttemptResultInternal(attempt.id, userId);
+      return this.getAttemptResultInternal(attempt.id, userId, manager, {
+        includeReview: false,
+      });
     });
   }
 
@@ -543,6 +630,7 @@ export class ExamAttemptService {
     const answers = await this.examAttemptAnswerRepository.find({
       where: { examAttemptId: attempt.id },
     });
+    const snapshot = await this.getHydratedSnapshot(attempt);
 
     return {
       resumed,
@@ -557,7 +645,7 @@ export class ExamAttemptService {
         durationSec: attempt.durationSec,
         mode: attempt.mode,
       },
-      template: this.sanitizeSnapshotForLearner(this.getSnapshot(attempt)),
+      template: this.sanitizeSnapshotForLearner(snapshot),
       savedAnswers: answers.map((answer) => ({
         questionId: answer.questionId,
         selectedOptionKey: answer.selectedOptionKey,
@@ -567,8 +655,25 @@ export class ExamAttemptService {
     };
   }
 
-  private async getAttemptResultInternal(attemptId: string, userId: string) {
-    const attempt = await this.examAttemptRepository.findOne({
+  private async getAttemptResultInternal(
+    attemptId: string,
+    userId: string,
+    manager?: EntityManager,
+    options?: { includeReview?: boolean },
+  ) {
+    const attemptRepository =
+      manager?.getRepository(ExamAttempt) ?? this.examAttemptRepository;
+    const answerRepository =
+      manager?.getRepository(ExamAttemptAnswer) ??
+      this.examAttemptAnswerRepository;
+    const partScoreRepository =
+      manager?.getRepository(ExamAttemptPartScore) ??
+      this.examAttemptPartScoreRepository;
+    const credentialRequestRepository =
+      manager?.getRepository(CredentialRequest) ??
+      this.credentialRequestRepository;
+
+    const attempt = await attemptRepository.findOne({
       where: { id: attemptId, userId },
     });
 
@@ -580,24 +685,82 @@ export class ExamAttemptService {
       throw new BadRequestException('Bai thi chua duoc cham diem');
     }
 
-    const [answers, partScores, credentialRequest] = await Promise.all([
-      this.examAttemptAnswerRepository.find({
+    const [answers, credentialRequest] = await Promise.all([
+      answerRepository.find({
         where: { examAttemptId: attempt.id },
         order: { questionNo: 'ASC' },
       }),
-      this.examAttemptPartScoreRepository.find({
-        where: { examAttemptId: attempt.id },
-        order: { sectionOrder: 'ASC' },
-      }),
-      this.credentialRequestRepository.findOne({
+      credentialRequestRepository.findOne({
         where: { examAttemptId: attempt.id },
       }),
     ]);
 
+    const snapshot = await this.getHydratedSnapshot(attempt);
+    const scoring = this.computeAttemptScoring(snapshot, answers);
     const answerMap = new Map(
       answers.map((answer) => [answer.questionId, answer]),
     );
-    const snapshot = this.getSnapshot(attempt);
+    const passed = scoring.totalScore >= attempt.passThresholdSnapshot;
+    const storedListeningRawScore = Number(attempt.listeningRawScore);
+    const storedReadingRawScore = Number(attempt.readingRawScore);
+    const storedListeningScaledScore = Number(attempt.listeningScaledScore);
+    const storedReadingScaledScore = Number(attempt.readingScaledScore);
+    const storedTotalScore = Number(attempt.totalScore);
+    const hasScoringMismatch =
+      attempt.answeredCount !== scoring.answeredCount ||
+      attempt.correctCount !== scoring.correctCount ||
+      storedListeningRawScore !== scoring.listeningRawScore ||
+      storedReadingRawScore !== scoring.readingRawScore ||
+      storedListeningScaledScore !== scoring.listeningScaledScore ||
+      storedReadingScaledScore !== scoring.readingScaledScore ||
+      storedTotalScore !== scoring.totalScore ||
+      attempt.passed !== passed ||
+      attempt.scoringVersion !== APP_CONSTANTS.EXAM_SCORING_VERSION;
+
+    if (hasScoringMismatch) {
+      attempt.answeredCount = scoring.answeredCount;
+      attempt.correctCount = scoring.correctCount;
+      attempt.listeningRawScore = this.toNumericString(scoring.listeningRawScore);
+      attempt.readingRawScore = this.toNumericString(scoring.readingRawScore);
+      attempt.listeningScaledScore = this.toNumericString(
+        scoring.listeningScaledScore,
+      );
+      attempt.readingScaledScore = this.toNumericString(
+        scoring.readingScaledScore,
+      );
+      attempt.totalScore = this.toNumericString(scoring.totalScore);
+      attempt.passed = passed;
+      attempt.scoringVersion = APP_CONSTANTS.EXAM_SCORING_VERSION;
+      attempt.resultPayload = {
+        listening: {
+          rawScore: scoring.listeningRawScore,
+          scaledScore: scoring.listeningScaledScore,
+          maxScore: APP_CONSTANTS.TOEIC_MAX_DOMAIN_SCORE,
+        },
+        reading: {
+          rawScore: scoring.readingRawScore,
+          scaledScore: scoring.readingScaledScore,
+          maxScore: APP_CONSTANTS.TOEIC_MAX_DOMAIN_SCORE,
+        },
+        answeredCount: scoring.answeredCount,
+        correctCount: scoring.correctCount,
+        totalQuestions: attempt.totalQuestions,
+      };
+
+      await attemptRepository.save(attempt);
+    }
+
+    const computedPartScores = [...scoring.partStats.entries()]
+      .sort((left, right) => left[1].sectionOrder - right[1].sectionOrder)
+      .map(([part, stats]) => ({
+        part,
+        sectionOrder: stats.sectionOrder,
+        questionCount: stats.questionCount,
+        correctCount: stats.correctCount,
+        rawScore: stats.rawScore,
+        scaledScore: stats.scaledScore,
+        durationSec: stats.durationSec > 0 ? stats.durationSec : null,
+      }));
 
     return {
       attempt: {
@@ -610,26 +773,18 @@ export class ExamAttemptService {
         gradedAt: attempt.gradedAt,
         durationSec: attempt.durationSec,
         totalQuestions: attempt.totalQuestions,
-        answeredCount: attempt.answeredCount,
-        correctCount: attempt.correctCount,
-        listeningRawScore: Number(attempt.listeningRawScore),
-        readingRawScore: Number(attempt.readingRawScore),
-        listeningScaledScore: Number(attempt.listeningScaledScore),
-        readingScaledScore: Number(attempt.readingScaledScore),
-        totalScore: Number(attempt.totalScore),
+        answeredCount: scoring.answeredCount,
+        correctCount: scoring.correctCount,
+        listeningRawScore: scoring.listeningRawScore,
+        readingRawScore: scoring.readingRawScore,
+        listeningScaledScore: scoring.listeningScaledScore,
+        readingScaledScore: scoring.readingScaledScore,
+        totalScore: scoring.totalScore,
         passThresholdSnapshot: attempt.passThresholdSnapshot,
-        passed: attempt.passed,
+        passed,
         scoringVersion: attempt.scoringVersion,
       },
-      partScores: partScores.map((partScore) => ({
-        part: partScore.part,
-        sectionOrder: partScore.sectionOrder,
-        questionCount: partScore.questionCount,
-        correctCount: partScore.correctCount,
-        rawScore: Number(partScore.rawScore),
-        scaledScore: Number(partScore.scaledScore),
-        durationSec: partScore.durationSec,
-      })),
+      partScores: computedPartScores,
       credentialRequest: credentialRequest
         ? {
             id: credentialRequest.id,
@@ -638,7 +793,10 @@ export class ExamAttemptService {
             requestedAt: credentialRequest.requestedAt,
           }
         : null,
-      review: this.buildReviewSnapshot(snapshot, answerMap),
+      review:
+        options?.includeReview === false
+          ? undefined
+          : this.buildReviewSnapshot(snapshot, answerMap),
     };
   }
 
@@ -717,6 +875,7 @@ export class ExamAttemptService {
           assets: (item.questionGroup.assets ?? []).map((asset) => ({
             id: asset.id,
             kind: asset.kind,
+            storageKey: asset.storageKey,
             publicUrl: asset.publicUrl,
             mimeType: asset.mimeType,
             durationSec: asset.durationSec,
@@ -807,6 +966,187 @@ export class ExamAttemptService {
 
   private getSnapshot(attempt: ExamAttempt) {
     return attempt.templateSnapshot as unknown as AttemptTemplateSnapshot;
+  }
+
+  private isAttemptExpired(attempt: ExamAttempt) {
+    const snapshot = this.getSnapshot(attempt);
+    const totalDurationSec = snapshot.template?.totalDurationSec;
+
+    if (!totalDurationSec || totalDurationSec <= 0) {
+      return false;
+    }
+
+    const startedAtMs = attempt.startedAt?.getTime?.();
+    if (!startedAtMs || !Number.isFinite(startedAtMs)) {
+      return false;
+    }
+
+    const elapsedSec = Math.max(
+      0,
+      Math.floor((Date.now() - startedAtMs) / 1000),
+    );
+
+    return elapsedSec >= totalDurationSec;
+  }
+
+  private async getHydratedSnapshot(attempt: ExamAttempt) {
+    const snapshot = this.getSnapshot(attempt);
+
+    if (!this.snapshotNeedsAssetRefresh(snapshot)) {
+      return snapshot;
+    }
+
+    try {
+      const template = await this.loadPublishedTemplate(attempt.examTemplateId);
+      const hydratedSnapshot = this.mergeSnapshotAssets(snapshot, template);
+
+      attempt.templateSnapshot = hydratedSnapshot as unknown as Record<
+        string,
+        unknown
+      >;
+      await this.examAttemptRepository.save(attempt);
+
+      return hydratedSnapshot;
+    } catch {
+      return snapshot;
+    }
+  }
+
+  private snapshotNeedsAssetRefresh(snapshot: AttemptTemplateSnapshot) {
+    return snapshot.sections.some((section) =>
+      section.items.some((item) => {
+        const assets = item.questionGroup.assets ?? [];
+        const part = item.questionGroup.part;
+        const isListeningPart =
+          part === QuestionPart.P1 ||
+          part === QuestionPart.P2 ||
+          part === QuestionPart.P3 ||
+          part === QuestionPart.P4;
+
+        if (isListeningPart && assets.length === 0) {
+          return true;
+        }
+
+        return assets.some(
+          (asset) =>
+            (asset.kind === 'audio' || asset.kind === 'image') &&
+            !asset.storageKey,
+        );
+      }),
+    );
+  }
+
+  private mergeSnapshotAssets(
+    snapshot: AttemptTemplateSnapshot,
+    template: ExamTemplate,
+  ): AttemptTemplateSnapshot {
+    const templateGroupMap = new Map(
+      template.items.map((item) => [item.questionGroupId, item.questionGroup]),
+    );
+
+    return {
+      ...snapshot,
+      sections: snapshot.sections.map((section) => ({
+        ...section,
+        items: section.items.map((item) => {
+          const templateGroup = templateGroupMap.get(item.questionGroupId);
+          if (!templateGroup) {
+            return item;
+          }
+
+          const templateAssets = (templateGroup.assets ?? [])
+            .slice()
+            .sort((left, right) => left.sortOrder - right.sortOrder)
+            .map((asset) => this.mapAssetToSnapshot(asset));
+
+          if (templateAssets.length === 0) {
+            return item;
+          }
+
+          const currentAssets = item.questionGroup.assets ?? [];
+          const mergedAssets =
+            currentAssets.length > 0
+              ? currentAssets.map((asset) => {
+                  const matchedAsset =
+                    templateAssets.find(
+                      (candidate) => candidate.id === asset.id,
+                    ) ??
+                    templateAssets.find(
+                      (candidate) =>
+                        candidate.kind === asset.kind &&
+                        candidate.sortOrder === asset.sortOrder,
+                    );
+
+                  if (!matchedAsset) {
+                    return asset;
+                  }
+
+                  return {
+                    ...asset,
+                    storageKey: asset.storageKey ?? matchedAsset.storageKey,
+                    publicUrl: asset.publicUrl ?? matchedAsset.publicUrl,
+                    mimeType: asset.mimeType ?? matchedAsset.mimeType,
+                    durationSec: asset.durationSec ?? matchedAsset.durationSec,
+                    contentText: asset.contentText ?? matchedAsset.contentText,
+                    metadata:
+                      Object.keys(asset.metadata ?? {}).length > 0
+                        ? asset.metadata
+                        : matchedAsset.metadata,
+                  };
+                })
+              : [];
+
+          const missingAssets = templateAssets.filter(
+            (candidate) =>
+              !mergedAssets.some(
+                (asset) =>
+                  asset.id === candidate.id ||
+                  (asset.kind === candidate.kind &&
+                    asset.sortOrder === candidate.sortOrder),
+              ),
+          );
+
+          return {
+            ...item,
+            questionGroup: {
+              ...item.questionGroup,
+              code: item.questionGroup.code || templateGroup.code,
+              title: item.questionGroup.title || templateGroup.title,
+              stem: item.questionGroup.stem ?? templateGroup.stem,
+              explanation:
+                item.questionGroup.explanation ?? templateGroup.explanation,
+              assets: [...mergedAssets, ...missingAssets].sort(
+                (left, right) => left.sortOrder - right.sortOrder,
+              ),
+            },
+          };
+        }),
+      })),
+    };
+  }
+
+  private mapAssetToSnapshot(asset: {
+    id: string;
+    kind: string;
+    storageKey: string;
+    publicUrl: string | null;
+    mimeType: string | null;
+    durationSec: number | null;
+    sortOrder: number;
+    contentText: string | null;
+    metadata: Record<string, unknown>;
+  }): AttemptAssetSnapshot {
+    return {
+      id: asset.id,
+      kind: asset.kind,
+      storageKey: asset.storageKey,
+      publicUrl: asset.publicUrl,
+      mimeType: asset.mimeType,
+      durationSec: asset.durationSec,
+      sortOrder: asset.sortOrder,
+      contentText: asset.contentText,
+      metadata: asset.metadata,
+    };
   }
 
   private sanitizeSnapshotForLearner(snapshot: AttemptTemplateSnapshot) {
@@ -932,6 +1272,141 @@ export class ExamAttemptService {
     return option;
   }
 
+  private computeAttemptScoring(
+    snapshot: AttemptTemplateSnapshot,
+    answers: ExamAttemptAnswer[],
+  ): AttemptScoreComputation {
+    const questionIndex = this.buildSnapshotQuestionIndex(snapshot);
+    const answerMap = new Map(answers.map((answer) => [answer.questionId, answer]));
+
+    let answeredCount = 0;
+    let correctCount = 0;
+    let listeningAvailableWeight = 0;
+    let readingAvailableWeight = 0;
+    let listeningQuestionCount = 0;
+    let readingQuestionCount = 0;
+    let listeningCorrectCount = 0;
+    let readingCorrectCount = 0;
+    let listeningRawScore = 0;
+    let readingRawScore = 0;
+
+    const partStats = new Map<QuestionPart, AttemptPartScoreComputation>();
+
+    for (const questionContext of questionIndex.values()) {
+      const scoreWeight = Number(questionContext.question.scoreWeight ?? 1);
+      const answer = answerMap.get(questionContext.question.id);
+      const isCorrect = this.isAnswerCorrect(
+        answer?.selectedOptionKey,
+        questionContext.question.answerKey,
+      );
+      const scoreAwarded = isCorrect ? scoreWeight : 0;
+
+      if (answer) {
+        answeredCount += 1;
+        answer.isCorrect = isCorrect;
+        answer.scoreWeightSnapshot = this.toNumericString(scoreWeight);
+        answer.scoreAwarded = this.toNumericString(scoreAwarded);
+      }
+
+      if (isCorrect) {
+        correctCount += 1;
+      }
+
+      const domain = this.getPartDomain(questionContext.section.part);
+      if (domain === 'listening') {
+        listeningQuestionCount += 1;
+        listeningAvailableWeight += scoreWeight;
+        listeningRawScore += scoreAwarded;
+        listeningCorrectCount += isCorrect ? 1 : 0;
+      } else {
+        readingQuestionCount += 1;
+        readingAvailableWeight += scoreWeight;
+        readingRawScore += scoreAwarded;
+        readingCorrectCount += isCorrect ? 1 : 0;
+      }
+
+      const currentPart = partStats.get(questionContext.section.part) ?? {
+        sectionOrder: questionContext.section.sectionOrder,
+        questionCount: 0,
+        correctCount: 0,
+        rawScore: 0,
+        scaledScore: 0,
+        durationSec: 0,
+      };
+
+      currentPart.questionCount += 1;
+      currentPart.rawScore += scoreAwarded;
+      currentPart.correctCount += isCorrect ? 1 : 0;
+      currentPart.durationSec += answer?.timeSpentSec ?? 0;
+      partStats.set(questionContext.section.part, currentPart);
+    }
+
+    const listeningScaledScore = this.scaleDomainScore(
+      'listening',
+      listeningCorrectCount,
+      listeningQuestionCount,
+      listeningRawScore,
+      listeningAvailableWeight,
+    );
+    const readingScaledScore = this.scaleDomainScore(
+      'reading',
+      readingCorrectCount,
+      readingQuestionCount,
+      readingRawScore,
+      readingAvailableWeight,
+    );
+
+    for (const [part, stats] of partStats.entries()) {
+      const domain =
+        this.getPartDomain(part) === 'listening' ? 'listening' : 'reading';
+      const domainWeight =
+        this.getPartDomain(part) === 'listening'
+          ? listeningAvailableWeight
+          : readingAvailableWeight;
+      const domainRawScore =
+        domain === 'listening' ? listeningRawScore : readingRawScore;
+      const domainScaledScore =
+        domain === 'listening'
+          ? listeningScaledScore
+          : readingScaledScore;
+      stats.scaledScore = this.scalePartScore(
+        stats.rawScore,
+        domainRawScore,
+        domainScaledScore,
+        domainWeight,
+      );
+    }
+
+    return {
+      answeredCount,
+      correctCount,
+      listeningCorrectCount,
+      readingCorrectCount,
+      listeningQuestionCount,
+      readingQuestionCount,
+      listeningRawScore,
+      readingRawScore,
+      listeningScaledScore,
+      readingScaledScore,
+      totalScore: listeningScaledScore + readingScaledScore,
+      partStats,
+    };
+  }
+
+  private isAnswerCorrect(
+    selectedOptionKey?: string | null,
+    answerKey?: string | null,
+  ) {
+    const selected = selectedOptionKey?.trim().toLowerCase();
+    const correct = answerKey?.trim().toLowerCase();
+
+    if (!selected || !correct) {
+      return false;
+    }
+
+    return selected === correct;
+  }
+
   private ensureUniqueQuestionIds(questionIds: string[]) {
     const seen = new Set<string>();
 
@@ -958,9 +1433,24 @@ export class ExamAttemptService {
     return 'reading';
   }
 
-  private scaleDomainScore(rawScore: number, availableWeight: number) {
-    if (availableWeight <= 0) {
+  private scaleDomainScore(
+    domain: ToeicDomain,
+    correctCount: number,
+    questionCount: number,
+    rawScore: number,
+    availableWeight: number,
+  ) {
+    if (questionCount <= 0 || availableWeight <= 0) {
       return 0;
+    }
+
+    const fullDomainQuestionCount =
+      domain === 'listening'
+        ? APP_CONSTANTS.LISTENING_QUESTIONS
+        : APP_CONSTANTS.READING_QUESTIONS;
+
+    if (questionCount === fullDomainQuestionCount) {
+      return this.lookupToeicDomainScore(domain, correctCount);
     }
 
     return Number(
@@ -968,6 +1458,34 @@ export class ExamAttemptService {
         (rawScore / availableWeight) *
         APP_CONSTANTS.TOEIC_MAX_DOMAIN_SCORE
       ).toFixed(2),
+    );
+  }
+
+  private lookupToeicDomainScore(domain: ToeicDomain, correctCount: number) {
+    const normalizedCorrectCount = Math.max(
+      0,
+      Math.min(correctCount, APP_CONSTANTS.LISTENING_QUESTIONS),
+    );
+    const scoreTable =
+      domain === 'listening'
+        ? TOEIC_LISTENING_SCORE_TABLE
+        : TOEIC_READING_SCORE_TABLE;
+
+    return scoreTable[normalizedCorrectCount] ?? APP_CONSTANTS.TOEIC_MAX_DOMAIN_SCORE;
+  }
+
+  private scalePartScore(
+    partRawScore: number,
+    domainRawScore: number,
+    domainScaledScore: number,
+    _domainWeight: number,
+  ) {
+    if (domainScaledScore <= 0 || domainRawScore <= 0) {
+      return 0;
+    }
+
+    return Number(
+      ((partRawScore / domainRawScore) * domainScaledScore).toFixed(2),
     );
   }
 

@@ -1,0 +1,70 @@
+name: Check Server Status
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Check Production Server
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check server status
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: 22
+          script: |
+            echo "📊 SERVER STATUS CHECK"
+            echo "====================="
+
+            echo "🐳 Docker Status:"
+            docker --version
+            docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
+
+            echo ""
+            echo "🔧 Docker Compose Status:"
+            cd /var/www/toeicai/ToeicBoost_BE 2>/dev/null || echo "❌ App directory not found"
+
+            if [ -d "/var/www/toeicai/ToeicBoost_BE" ]; then
+              cd /var/www/toeicai/ToeicBoost_BE
+              docker compose -f docker-compose.production.yml ps
+            fi
+
+            echo ""
+            echo "🌐 Network Status:"
+            ss -tulpn | grep -E "(:80|127.0.0.1:3001|:5433)" || true
+
+            echo ""
+            echo "🧭 Host Nginx Service:"
+            systemctl is-active nginx || true
+
+            echo ""
+            echo "🏥 Loopback API Health Check:"
+            curl -fsS --connect-timeout 5 http://127.0.0.1:3001/health
+
+            echo ""
+            echo "🏥 Nginx Health Check:"
+            curl -fsS --connect-timeout 5 http://localhost/health
+
+            echo ""
+            echo "🗄️ Database Connection Test:"
+            if command -v pg_isready >/dev/null 2>&1; then
+              if pg_isready -h 144.91.104.237 -p 5433 -U toeicai_user; then
+                echo "✅ PostgreSQL is ready"
+              else
+                echo "❌ PostgreSQL connection failed"
+              fi
+            else
+              echo "⚠️ pg_isready not available, skipping DB test"
+            fi
+
+            echo ""
+            echo "📋 API Logs (last 10 lines):"
+            docker logs --tail 10 toeic-api-prod || true
+
+            echo ""
+            echo "📋 Host Nginx Logs (last 10 lines):"
+            journalctl -u nginx -n 10 --no-pager || true
