@@ -3,7 +3,11 @@ import * as dotenv from 'dotenv';
 import * as path from 'node:path';
 import { getDatabaseConfig } from '../config/database.config';
 import { CreateExamAttemptTables1742860000000 } from './migrations/1742860000000-CreateExamAttemptTables';
-
+import { AddUserProfileFields1749000000000 } from './migrations/1749000000000-AddUserProfileFields';
+import { AddUserAvatarS3Key1749000000001 } from './migrations/1749000000001-AddUserAvatarS3Key';
+import { CreateFlashcardsTables1749000000002 } from './migrations/1749000000002-CreateFlashcardsTables';
+import { CreateVocabularyTablesAndPermission1749100800000 } from './migrations/1749100800000-CreateVocabularyTablesAndPermission';
+import { AddPronunciationToVocabularyItems1749100900000 } from './migrations/1749100900000-AddPronunciationToVocabularyItems';
 dotenv.config();
 
 const dbConfig = getDatabaseConfig();
@@ -18,8 +22,15 @@ const dataSource = new DataSource({
   ...dbConfig,
   entities: [path.join(__dirname, '../**/*.entity.{ts,js}')],
   synchronize: false,
-  migrations: [CreateExamAttemptTables1742860000000],
-  migrationsTableName: 'migrations',
+  migrations: [
+    // CreateExamAttemptTables1742860000000,
+    // AddUserProfileFields1749000000000,
+    // AddUserAvatarS3Key1749000000001,
+    // CreateFlashcardsTables1749000000002,
+    // CreateVocabularyTablesAndPermission1749100800000,
+    AddPronunciationToVocabularyItems1749100900000,
+  ],
+  migrationsTableName: 'migrations',  
 });
 
 export default dataSource;

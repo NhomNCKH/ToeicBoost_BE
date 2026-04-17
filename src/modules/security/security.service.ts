@@ -223,10 +223,75 @@ export class SecurityService {
   }
 
   getMe(payload: IJwtPayload) {
+    return this.userRepository
+      .findOne({
+        where: { id: payload.sub },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          status: true,
+          avatarUrl: true,
+          phone: true,
+          birthday: true,
+          address: true,
+          bio: true,
+          linkedin: true,
+          github: true,
+          twitter: true,
+        },
+      })
+      .then((user) => ({
+        success: true,
+        message: 'Current user profile',
+        data: {
+          ...payload,
+          name: user?.name ?? payload.email,
+          avatarUrl: user?.avatarUrl ?? null,
+          phone: user?.phone ?? null,
+          birthday: user?.birthday ?? null,
+          address: user?.address ?? null,
+          bio: user?.bio ?? null,
+          linkedin: user?.linkedin ?? null,
+          github: user?.github ?? null,
+          twitter: user?.twitter ?? null,
+        } as any,
+      }));
+  }
+
+  async updateMe(userId: string, dto: any) {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (typeof dto?.name === 'string') user.name = dto.name.trim();
+    if (typeof dto?.phone === 'string') user.phone = dto.phone.trim() || null;
+    if (typeof dto?.birthday === 'string') user.birthday = dto.birthday || null;
+    if (typeof dto?.address === 'string') user.address = dto.address.trim() || null;
+    if (typeof dto?.bio === 'string') user.bio = dto.bio.trim() || null;
+    if (typeof dto?.linkedin === 'string') user.linkedin = dto.linkedin.trim() || null;
+    if (typeof dto?.github === 'string') user.github = dto.github.trim() || null;
+    if (typeof dto?.twitter === 'string') user.twitter = dto.twitter.trim() || null;
+
+    const saved = await this.userRepository.save(user);
     return {
       success: true,
-      message: 'Current user profile',
-      data: payload,
+      message: 'Profile updated',
+      data: {
+        id: saved.id,
+        email: saved.email,
+        name: saved.name,
+        status: saved.status,
+        avatarUrl: saved.avatarUrl,
+        phone: saved.phone,
+        birthday: saved.birthday,
+        address: saved.address,
+        bio: saved.bio,
+        linkedin: saved.linkedin,
+        github: saved.github,
+        twitter: saved.twitter,
+      },
     };
   }
 
@@ -272,6 +337,7 @@ export class SecurityService {
     }
 
     user.avatarUrl = avatarUrl;
+    user.avatarS3Key = objectKey;
     await this.userRepository.save(user);
 
     return {
@@ -283,14 +349,14 @@ export class SecurityService {
   async getAvatar(userId: string) {
     const user = await this.userRepository.findOne({
       where: { id: userId },
-      select: { id: true, avatarUrl: true },
+      select: { id: true, avatarUrl: true, avatarS3Key: true },
     });
 
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
-    return { avatarUrl: user.avatarUrl };
+    return { avatarUrl: user.avatarUrl, s3Key: user.avatarS3Key ?? null };
   }
 
   async attachAvatarFromS3Key(userId: string, s3Key: string) {
@@ -313,6 +379,7 @@ export class SecurityService {
     }
 
     user.avatarUrl = avatarUrl;
+    user.avatarS3Key = s3Key;
     await this.userRepository.save(user);
 
     return {

@@ -13,4 +13,5 @@ export enum PermissionCode {
   DASHBOARD_VIEW = 'dashboard.view',
   SETTINGS_MANAGE = 'settings.manage',
   AUDIT_VIEW = 'audit.view',
+  VOCABULARY_MANAGE = 'vocabulary.manage',
 }

@@ -19,6 +19,8 @@ import { S3StorageModule } from './modules/s3/s3-storage.module';
 import { MediaModule } from '@modules/media/media.module';
 import { AdminModule } from '@modules/admin/admin.module';
 import { AssessmentModule } from '@modules/assessment/assessment.module';
+import { FlashcardsModule } from '@modules/flashcards/flashcards.module';
+import { VocabularyModule } from '@modules/vocabulary/vocabulary.module';
 
 @Module({
   imports: [
@@ -71,6 +73,10 @@ import { AssessmentModule } from '@modules/assessment/assessment.module';
     AdminModule,
 
     AssessmentModule,
+
+    FlashcardsModule,
+
+    VocabularyModule,
   ],
   controllers: [AppController],
   providers: [

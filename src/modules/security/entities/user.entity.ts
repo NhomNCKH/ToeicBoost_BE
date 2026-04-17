@@ -34,6 +34,35 @@ export class User extends BaseEntity {
   @Column({ name: 'avatar_url', type: 'varchar', length: 500, nullable: true })
   avatarUrl: string | null;
 
+  @Column({
+    name: 'avatar_s3_key',
+    type: 'varchar',
+    length: 600,
+    nullable: true,
+  })
+  avatarS3Key: string | null;
+
+  @Column({ name: 'phone', type: 'varchar', length: 30, nullable: true })
+  phone: string | null;
+
+  @Column({ name: 'birthday', type: 'date', nullable: true })
+  birthday: string | null;
+
+  @Column({ name: 'address', type: 'varchar', length: 255, nullable: true })
+  address: string | null;
+
+  @Column({ name: 'bio', type: 'text', nullable: true })
+  bio: string | null;
+
+  @Column({ name: 'linkedin', type: 'varchar', length: 255, nullable: true })
+  linkedin: string | null;
+
+  @Column({ name: 'github', type: 'varchar', length: 255, nullable: true })
+  github: string | null;
+
+  @Column({ name: 'twitter', type: 'varchar', length: 255, nullable: true })
+  twitter: string | null;
+
   @Index('uq_users_google_id', {
     unique: true,
     where: '"google_id" IS NOT NULL',

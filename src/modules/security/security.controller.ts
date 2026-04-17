@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Put,
   Req,
   UploadedFile,
   UseInterceptors,
@@ -35,6 +36,7 @@ import {
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
+import { UpdateMeDto } from './dto/update-me.dto';
 import { IAuthRequestMeta } from './interfaces/auth-request.interface';
 import { SecurityService } from './security.service';
 
@@ -174,6 +176,17 @@ export class SecurityController {
   })
   me(@CurrentUser() user: IJwtPayload) {
     return this.securityService.getMe(user);
+  }
+
+  @Put('me')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Cập nhật hồ sơ người dùng hiện tại',
+    description:
+      'Cập nhật các trường hồ sơ (tên, SĐT, ngày sinh, địa chỉ, giới thiệu, social links) cho người dùng đang đăng nhập.',
+  })
+  updateMe(@CurrentUser('sub') userId: string, @Body() dto: UpdateMeDto) {
+    return this.securityService.updateMe(userId, dto);
   }
 
   @Post('me/avatar')
