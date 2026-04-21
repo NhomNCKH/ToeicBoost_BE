@@ -2,6 +2,7 @@ import { PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
+  IsDateString,
   IsArray,
   IsBoolean,
   IsEnum,
@@ -46,6 +47,14 @@ export class CreateExamTemplateDto {
   @IsInt()
   @Min(1)
   totalQuestions: number;
+
+  @ApiPropertyOptional({
+    example: '2026-04-17',
+    description: 'Ngày thi (chỉ dùng cho official_exam)',
+  })
+  @IsOptional()
+  @IsDateString()
+  examDate?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

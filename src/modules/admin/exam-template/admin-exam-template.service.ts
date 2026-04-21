@@ -10,6 +10,7 @@ import { CredentialRequest } from '@modules/admin/credential/entities/credential
 import { paginate } from '@helpers/pagination.helper';
 import {
   TemplateItemMode,
+  TemplateMode,
   TemplateStatus,
 } from '@common/constants/exam-template.enum';
 import {
@@ -127,12 +128,17 @@ export class AdminExamTemplateService {
   async createTemplate(dto: CreateExamTemplateDto, userId: string) {
     await this.ensureTemplateCodeUnique(dto.code);
 
+    if (dto.mode === TemplateMode.OFFICIAL_EXAM && !dto.examDate) {
+      throw new BadRequestException('examDate is required for official_exam');
+    }
+
     const template = this.examTemplateRepository.create({
       code: dto.code.trim(),
       name: dto.name.trim(),
       mode: dto.mode,
       totalDurationSec: dto.totalDurationSec,
       totalQuestions: dto.totalQuestions,
+      examDate: dto.examDate ? new Date(dto.examDate) : null,
       instructions: dto.instructions?.trim() ?? null,
       shuffleQuestionOrder: dto.shuffleQuestionOrder ?? false,
       shuffleOptionOrder: dto.shuffleOptionOrder ?? false,
@@ -190,6 +196,8 @@ export class AdminExamTemplateService {
       mode: dto.mode ?? template.mode,
       totalDurationSec: dto.totalDurationSec ?? template.totalDurationSec,
       totalQuestions: dto.totalQuestions ?? template.totalQuestions,
+      examDate:
+        dto.examDate !== undefined ? (dto.examDate ? new Date(dto.examDate) : null) : template.examDate,
       instructions:
         dto.instructions !== undefined
           ? (dto.instructions?.trim() ?? null)
@@ -200,6 +208,10 @@ export class AdminExamTemplateService {
       metadata: dto.metadata ?? template.metadata,
       updatedById: userId,
     });
+
+    if (template.mode === TemplateMode.OFFICIAL_EXAM && !template.examDate) {
+      throw new BadRequestException('examDate is required for official_exam');
+    }
 
     await this.examTemplateRepository.save(template);
     return this.getTemplateDetail(id);
@@ -506,12 +518,32 @@ export class AdminExamTemplateService {
           [],
           [],
         );
-        const selected = this.selectCandidatesByLevelDistribution(
+
+        // Mục tiêu chính của auto-fill là đạt đủ số CÂU HỎI cho section.
+        // `expectedGroupCount` được giữ như một "gợi ý" ban đầu (đặc biệt hữu ích cho P3/P4/P6/P7),
+        // nhưng không được phép khiến hệ thống chỉ resolve thiếu câu (ví dụ P2 mỗi group = 1 câu).
+        const targetQuestionCount = section.expectedQuestionCount;
+        let currentQuestionCount = 0;
+
+        const preferred = this.selectCandidatesByLevelDistribution(
           candidates,
-          section.expectedGroupCount,
+          Math.max(0, section.expectedGroupCount),
           {},
         );
-        for (const candidate of selected) {
+        const preferredIds = new Set(preferred.map((g) => g.id));
+        const remaining = candidates.filter((g) => !preferredIds.has(g.id));
+
+        const ordered = [...preferred, ...remaining];
+
+        for (const candidate of ordered) {
+          if (currentQuestionCount >= targetQuestionCount) break;
+
+          const qCount = candidate.questions?.length ?? 0;
+          if (qCount <= 0) continue;
+
+          // Không được vượt quá target vì validate yêu cầu đúng bằng expectedQuestionCount
+          if (currentQuestionCount + qCount > targetQuestionCount) continue;
+
           await this.examTemplateItemRepository.save(
             this.examTemplateItemRepository.create({
               createdById: userId,
@@ -524,6 +556,7 @@ export class AdminExamTemplateService {
             }),
           );
           existingGroupIds.add(candidate.id);
+          currentQuestionCount += qCount;
         }
         continue;
       }
@@ -558,6 +591,10 @@ export class AdminExamTemplateService {
           if (currentRuleQuestionCount >= targetQuestionCount) break;
 
           const qCount = candidate.questions?.length ?? 0;
+          if (qCount <= 0) continue;
+
+          // Tránh overshoot để không fail validate
+          if (currentRuleQuestionCount + qCount > targetQuestionCount) continue;
           await this.examTemplateItemRepository.save(
             this.examTemplateItemRepository.create({
               createdById: userId,
@@ -714,6 +751,7 @@ export class AdminExamTemplateService {
             status: TemplateStatus.DRAFT,
             totalDurationSec: template.totalDurationSec,
             totalQuestions: template.totalQuestions,
+            examDate: template.examDate,
             instructions: template.instructions,
             shuffleQuestionOrder: template.shuffleQuestionOrder,
             shuffleOptionOrder: template.shuffleOptionOrder,

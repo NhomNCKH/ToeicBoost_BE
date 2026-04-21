@@ -71,6 +71,9 @@ export class ExamTemplate extends BaseEntity {
   @Column({ name: 'published_at', type: 'timestamptz', nullable: true })
   publishedAt: Date | null;
 
+  @Column({ name: 'exam_date', type: 'timestamptz', nullable: true })
+  examDate: Date | null;
+
   @Column({ name: 'metadata', type: 'jsonb', default: () => "'{}'::jsonb" })
   metadata: Record<string, unknown>;
 

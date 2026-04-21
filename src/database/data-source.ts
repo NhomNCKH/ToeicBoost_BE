@@ -8,6 +8,9 @@ import { AddUserAvatarS3Key1749000000001 } from './migrations/1749000000001-AddU
 import { CreateFlashcardsTables1749000000002 } from './migrations/1749000000002-CreateFlashcardsTables';
 import { CreateVocabularyTablesAndPermission1749100800000 } from './migrations/1749100800000-CreateVocabularyTablesAndPermission';
 import { AddPronunciationToVocabularyItems1749100900000 } from './migrations/1749100900000-AddPronunciationToVocabularyItems';
+import { AddExamDateToExamTemplates1749101100000 } from './migrations/1749101100000-AddExamDateToExamTemplates';
+import { CreateOfficialExamRegistrations1761303000000 } from './migrations/1761303000000-CreateOfficialExamRegistrations';
+import { FixOfficialExamRegistrationsBaseEntityColumns1761303000001 } from './migrations/1761303000001-FixOfficialExamRegistrationsBaseEntityColumns';
 dotenv.config();
 
 const dbConfig = getDatabaseConfig();
@@ -28,7 +31,10 @@ const dataSource = new DataSource({
     // AddUserAvatarS3Key1749000000001,
     // CreateFlashcardsTables1749000000002,
     // CreateVocabularyTablesAndPermission1749100800000,
-    AddPronunciationToVocabularyItems1749100900000,
+    // AddPronunciationToVocabularyItems1749100900000,
+    // AddExamDateToExamTemplates1749101100000,
+    // CreateOfficialExamRegistrations1761303000000,
+    FixOfficialExamRegistrationsBaseEntityColumns1761303000001,
   ],
   migrationsTableName: 'migrations',  
 });

@@ -192,6 +192,7 @@ export class ExamAttemptService {
       'tpl.status',
       'tpl.totalDurationSec',
       'tpl.totalQuestions',
+      'tpl.examDate',
       'tpl.instructions',
       'tpl.metadata',
       'tpl.publishedAt',
