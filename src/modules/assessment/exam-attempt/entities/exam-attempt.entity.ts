@@ -152,6 +152,27 @@ export class ExamAttempt extends BaseEntity {
   @Column({ name: 'metadata', type: 'jsonb', default: () => "'{}'::jsonb" })
   metadata: Record<string, unknown>;
 
+  @Column({ name: 'proctoring_enabled', default: true })
+  proctoringEnabled: boolean;
+
+  @Column({ name: 'warning_count', default: 0 })
+  warningCount: number;
+
+  @Column({ name: 'violation_count', default: 0 })
+  violationCount: number;
+
+  @Column({ name: 'last_violation_at', nullable: true })
+  lastViolationAt: Date;
+
+  @Column({ name: 'blocked_at', nullable: true })
+  blockedAt: Date;
+
+  @Column({ name: 'block_reason', nullable: true })
+  blockReason: string;
+
+  @Column({ name: 'proctoring_status', default: 'active' })
+  proctoringStatus: string;
+
   @ManyToOne(() => User, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'user_id' })
   user: User;

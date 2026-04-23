@@ -468,7 +468,9 @@ export class AdminQuestionBankService {
         group.updatedById = userId;
         group.reviewedById = userId;
         group.publishedAt =
-          dto.status === QuestionGroupStatus.PUBLISHED ? now : group.publishedAt;
+          dto.status === QuestionGroupStatus.PUBLISHED
+            ? now
+            : group.publishedAt;
       }
 
       await repository.save(groups);

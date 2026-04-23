@@ -1,16 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import {
-  IsNull,
-  MoreThanOrEqual,
-  Repository,
-} from 'typeorm';
+import { IsNull, MoreThanOrEqual, Repository } from 'typeorm';
 import { CredentialStatus } from '@common/constants/credential.enum';
 import {
   TemplateMode,
   TemplateStatus,
 } from '@common/constants/exam-template.enum';
-import { QuestionPart, QuestionGroupStatus } from '@common/constants/question-bank.enum';
+import {
+  QuestionPart,
+  QuestionGroupStatus,
+} from '@common/constants/question-bank.enum';
 import { ExamAttemptStatus } from '@common/constants/assessment.enum';
 import { UserStatus } from '@common/constants/user.enum';
 import { User } from '@modules/security/entities/user.entity';
@@ -217,7 +216,11 @@ export class AdminDashboardService {
         credentialsLast30Days,
       },
       templateModes: this.fillCountBuckets(
-        [TemplateMode.PRACTICE, TemplateMode.MOCK_TEST, TemplateMode.OFFICIAL_EXAM],
+        [
+          TemplateMode.PRACTICE,
+          TemplateMode.MOCK_TEST,
+          TemplateMode.OFFICIAL_EXAM,
+        ],
         templateModesRaw,
       ),
       attemptStatuses: this.fillCountBuckets(
@@ -263,7 +266,9 @@ export class AdminDashboardService {
         startedAt: attempt.startedAt,
         submittedAt: attempt.submittedAt,
         durationSec:
-          attempt.durationSec === null ? null : this.toNumber(attempt.durationSec),
+          attempt.durationSec === null
+            ? null
+            : this.toNumber(attempt.durationSec),
         user: attempt.userId
           ? {
               id: attempt.userId,

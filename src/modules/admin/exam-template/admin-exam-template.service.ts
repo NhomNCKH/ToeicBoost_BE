@@ -224,10 +224,9 @@ export class AdminExamTemplateService {
       });
       const attemptIds = attempts.map((a) => a.id);
       if (attemptIds.length > 0) {
-        await manager.getRepository(CredentialRequest).update(
-          { examAttemptId: In(attemptIds) },
-          { examAttemptId: null },
-        );
+        await manager
+          .getRepository(CredentialRequest)
+          .update({ examAttemptId: In(attemptIds) }, { examAttemptId: null });
         await manager.getRepository(ExamAttempt).delete({
           examTemplateId: id,
         });
@@ -530,10 +529,10 @@ export class AdminExamTemplateService {
 
       // Xử lý từng rule của section
       for (const rule of sectionRules) {
-        const currentSectionItems = (await this.getTemplateDetail(templateId)).items.filter(
-          (item) => item.sectionId === section.id,
-        );
-        
+        const currentSectionItems = (
+          await this.getTemplateDetail(templateId)
+        ).items.filter((item) => item.sectionId === section.id);
+
         // Với mỗi rule, ta cần lấy đủ số lượng CÂU HỎI (questionCount)
         // chứ không phải số lượng NHÓM (groupCount)
         // Hệ thống sẽ lấy các nhóm cho đến khi tổng số câu hỏi đạt mức yêu cầu
@@ -820,7 +819,9 @@ export class AdminExamTemplateService {
     // Chỉ cần đảm bảo mỗi rule có số lượng câu hỏi hợp lệ
     for (const rule of rules) {
       if (rule.questionCount <= 0) {
-        throw new BadRequestException(`Invalid questionCount for part ${rule.part}`);
+        throw new BadRequestException(
+          `Invalid questionCount for part ${rule.part}`,
+        );
       }
     }
   }

@@ -15,13 +15,20 @@
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { DataSource } from 'typeorm';
-import { DB_ENTITIES_PATH, getDatabaseConfig } from '../../config/database.config';
+import {
+  DB_ENTITIES_PATH,
+  getDatabaseConfig,
+} from '../../config/database.config';
 import {
   QuestionPart,
   QuestionLevel,
   QuestionGroupStatus,
 } from '../../common/constants/question-bank.enum';
-import { TemplateMode, TemplateStatus, TemplateItemMode } from '../../common/constants/exam-template.enum';
+import {
+  TemplateMode,
+  TemplateStatus,
+  TemplateItemMode,
+} from '../../common/constants/exam-template.enum';
 import { User } from '../../modules/security/entities/user.entity';
 import { UserStatus } from '../../common/constants/user.enum';
 import { Role } from '../../modules/admin/rbac/entities/role.entity';
@@ -107,11 +114,19 @@ async function ensureTags(
   userId: string,
 ): Promise<Record<string, Tag>> {
   const defs = [
-    { code: 'grammar:word_form', label: 'Word form / grammar', category: 'grammar' },
+    {
+      code: 'grammar:word_form',
+      label: 'Word form / grammar',
+      category: 'grammar',
+    },
     { code: 'grammar:preposition', label: 'Prepositions', category: 'grammar' },
     { code: 'reading:detail', label: 'Reading detail', category: 'reading' },
     { code: 'reading:inference', label: 'Inference', category: 'reading' },
-    { code: 'vocab:general', label: 'General vocabulary', category: 'vocabulary' },
+    {
+      code: 'vocab:general',
+      label: 'General vocabulary',
+      category: 'vocabulary',
+    },
   ];
   const out: Record<string, Tag> = {};
   const repo = ds.getRepository(Tag);
@@ -212,7 +227,10 @@ async function saveGroupWithQuestions(
 }
 
 async function main() {
-  const suffix = (process.env.SEED_CODE_SUFFIX ?? 'demo').replace(/[^a-zA-Z0-9_-]/g, '');
+  const suffix = (process.env.SEED_CODE_SUFFIX ?? 'demo').replace(
+    /[^a-zA-Z0-9_-]/g,
+    '',
+  );
   const db = getDatabaseConfig();
   if (!db.password || typeof db.password !== 'string') {
     throw new Error('DB_PASSWORD không hợp lệ — kiểm tra .env');
@@ -355,7 +373,10 @@ async function main() {
 
   const itemRepo = dataSource.getRepository(ExamTemplateItem);
   let order = 1;
-  const addItems = async (section: ExamTemplateSection, groups: QuestionGroup[]) => {
+  const addItems = async (
+    section: ExamTemplateSection,
+    groups: QuestionGroup[],
+  ) => {
     for (const g of groups) {
       await itemRepo.save(
         itemRepo.create({
@@ -379,7 +400,9 @@ async function main() {
 
   console.log('--- Seed hoàn tất ---');
   console.log(`User: ${process.env.SEED_USER_EMAIL}`);
-  console.log(`Question groups: ${totalGroups} (P5=${p5Groups.length}, P6=${p6Groups.length}, P7=${p7Groups.length})`);
+  console.log(
+    `Question groups: ${totalGroups} (P5=${p5Groups.length}, P6=${p6Groups.length}, P7=${p7Groups.length})`,
+  );
   console.log(`Total questions: ${totalQuestions}`);
   console.log(`Exam template: code=${examCode}, id=${exam.id}, status=draft`);
   console.log('Mở Admin → Đề thi để kiểm tra / xuất bản sau khi validate.');

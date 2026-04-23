@@ -19,6 +19,8 @@ import { S3StorageModule } from './modules/s3/s3-storage.module';
 import { MediaModule } from '@modules/media/media.module';
 import { AdminModule } from '@modules/admin/admin.module';
 import { AssessmentModule } from '@modules/assessment/assessment.module';
+import { RedisModule } from './redis/redis.module'; // ← Thêm
+import { ProctoringModule } from './proctoring/proctoring.module'; // ← Thêm
 
 @Module({
   imports: [
@@ -63,14 +65,13 @@ import { AssessmentModule } from '@modules/assessment/assessment.module';
     }),
 
     S3StorageModule,
-
     SecurityModule,
-
     MediaModule,
-
     AdminModule,
-
     AssessmentModule,
+
+    RedisModule,
+    ProctoringModule,
   ],
   controllers: [AppController],
   providers: [
