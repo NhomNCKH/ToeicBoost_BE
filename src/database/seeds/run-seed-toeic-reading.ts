@@ -13,35 +13,25 @@
  *
  * Nội dung câu hỏi là văn bản mẫu phong cách TOEIC, không sao chép đề ETS.
  */
-import * as path from 'path';
 import * as dotenv from 'dotenv';
+import * as path from 'path';
 import { DataSource } from 'typeorm';
+import { TemplateItemMode, TemplateMode, TemplateStatus } from '../../common/constants/exam-template.enum';
 import {
-  DB_ENTITIES_PATH,
-  getDatabaseConfig,
-} from '../../config/database.config';
-import {
-  QuestionPart,
-  QuestionLevel,
   QuestionGroupStatus,
+  QuestionLevel,
+  QuestionPart,
 } from '../../common/constants/question-bank.enum';
-import {
-  TemplateMode,
-  TemplateStatus,
-  TemplateItemMode,
-} from '../../common/constants/exam-template.enum';
-import { User } from '../../modules/security/entities/user.entity';
 import { UserStatus } from '../../common/constants/user.enum';
+import { DB_ENTITIES_PATH, getDatabaseConfig } from '../../config/database.config';
+import { ExamTemplateItem } from '../../modules/admin/exam-template/entities/exam-template-item.entity';
+import { ExamTemplateSection } from '../../modules/admin/exam-template/entities/exam-template-section.entity';
+import { ExamTemplate } from '../../modules/admin/exam-template/entities/exam-template.entity';
+import { QuestionGroup } from '../../modules/admin/question-bank/entities/question-group.entity';
+import { Tag } from '../../modules/admin/question-bank/entities/tag.entity';
 import { Role } from '../../modules/admin/rbac/entities/role.entity';
 import { UserRoleAssignment } from '../../modules/admin/rbac/entities/user-role.entity';
-import { Tag } from '../../modules/admin/question-bank/entities/tag.entity';
-import { DB_ENTITIES_PATH, getDatabaseConfig } from '../../config/database.config';
-import { QuestionPart } from '../../common/constants/question-bank.enum';
-import { TemplateMode, TemplateStatus, TemplateItemMode } from '../../common/constants/exam-template.enum';
-import { QuestionGroup } from '../../modules/admin/question-bank/entities/question-group.entity';
-import { ExamTemplate } from '../../modules/admin/exam-template/entities/exam-template.entity';
-import { ExamTemplateSection } from '../../modules/admin/exam-template/entities/exam-template-section.entity';
-import { ExamTemplateItem } from '../../modules/admin/exam-template/entities/exam-template-item.entity';
+import { User } from '../../modules/security/entities/user.entity';
 import { buildP5Items, buildP6Passages, buildP7Passages } from './toeic-reading-p567-content';
 import {
   ensureReadingSeedTags,
@@ -49,6 +39,10 @@ import {
   resolveSeedUserId,
   saveReadingQuestionGroup,
 } from './toeic-reading-seed-shared';
+import { Question } from '../../modules/admin/question-bank/entities/question.entity';
+import { QuestionOption } from '../../modules/admin/question-bank/entities/question-option.entity';
+import { QuestionGroupTag } from '../../modules/admin/question-bank/entities/question-group-tag.entity';
+import { optionsWithKey, type McqDef } from './toeic-reading-p567-content';
 
 dotenv.config({ path: path.join(__dirname, '../../../.env') });
 
