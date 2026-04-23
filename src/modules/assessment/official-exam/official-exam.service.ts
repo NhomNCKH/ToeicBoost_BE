@@ -1,0 +1,484 @@
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { IsNull, Repository } from 'typeorm';
+import { TemplateMode, TemplateStatus } from '@common/constants/exam-template.enum';
+import { ExamTemplate } from '@modules/admin/exam-template/entities/exam-template.entity';
+import {
+  OfficialExamRegistration,
+  OfficialExamRegistrationStatus,
+} from './entities/official-exam-registration.entity';
+import { User } from '@modules/security/entities/user.entity';
+import { MailerService } from '@modules/notification/services/mailer.service';
+
+function formatDateVi(d: Date) {
+  // dd/mm/yyyy
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+function startOfLocalDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+}
+
+function endOfLocalDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+}
+
+function buildEmailShell(opts: { title: string; preheader?: string; bodyHtml: string }) {
+  const preheader = opts.preheader ?? '';
+  // Inline CSS for email client compatibility
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${opts.title}</title>
+  </head>
+  <body style="margin:0;padding:0;background:#0b1220;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${preheader}</div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#0b1220;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="640" cellspacing="0" cellpadding="0" style="max-width:640px;width:100%;background:#0f1b33;border:1px solid rgba(148,163,184,.18);border-radius:18px;overflow:hidden;">
+            <tr>
+              <td style="background:linear-gradient(90deg,#f59e0b,#fbbf24);padding:18px 22px;">
+                <div style="font-weight:800;color:#111827;font-size:16px;letter-spacing:.2px;">ToeicBoost — Official Exam</div>
+                <div style="font-weight:700;color:rgba(17,24,39,.78);font-size:12px;margin-top:4px;">Thông báo đăng ký & lịch thi</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:22px;">
+                ${opts.bodyHtml}
+                <div style="margin-top:20px;padding-top:14px;border-top:1px solid rgba(148,163,184,.18);color:#94a3b8;font-size:12px;line-height:1.6;">
+                  Nếu bạn không thực hiện hành động này, bạn có thể bỏ qua email.
+                  <br/>© ${new Date().getFullYear()} ToeicBoost.
+                </div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
+function buildRegistrationConfirmationEmail(payload: {
+  learnerName: string;
+  templateCode: string;
+  templateName: string;
+  examDate: Date;
+  durationMin: number;
+  totalQuestions: number;
+}) {
+  const dateLabel = formatDateVi(payload.examDate);
+  const body = `
+    <div style="color:#e5e7eb;">
+      <div style="font-size:18px;font-weight:800;letter-spacing:.2px;">Xác nhận đăng ký thi chứng chỉ</div>
+      <div style="margin-top:8px;color:#cbd5e1;font-size:13px;line-height:1.7;">
+        Chào <strong style="color:#fff;">${payload.learnerName || 'bạn'}</strong>, bạn đã đăng ký thành công suất thi ngày <strong style="color:#fff;">${dateLabel}</strong>.
+      </div>
+
+      <div style="margin-top:14px;border:1px solid rgba(148,163,184,.18);border-radius:14px;background:#0b1220;padding:14px 14px;">
+        <div style="display:flex;gap:10px;align-items:center;">
+          <div style="width:10px;height:10px;border-radius:999px;background:#fbbf24;"></div>
+          <div style="font-weight:800;color:#fff;">Thông tin suất thi</div>
+        </div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:10px;color:#e5e7eb;font-size:13px;">
+          <tr>
+            <td style="padding:6px 0;color:#94a3b8;width:38%;">Đề thi</td>
+            <td style="padding:6px 0;font-weight:700;">${payload.templateName} <span style="color:#94a3b8;font-weight:600;">(${payload.templateCode})</span></td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#94a3b8;">Ngày thi</td>
+            <td style="padding:6px 0;font-weight:700;">${dateLabel}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#94a3b8;">Giờ nhắc thi</td>
+            <td style="padding:6px 0;font-weight:700;">07:00 (sáng)</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#94a3b8;">Thời lượng</td>
+            <td style="padding:6px 0;font-weight:700;">${payload.durationMin} phút</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#94a3b8;">Tổng số câu</td>
+            <td style="padding:6px 0;font-weight:700;">${payload.totalQuestions} câu</td>
+          </tr>
+        </table>
+      </div>
+
+      <div style="margin-top:14px;border-left:4px solid #fbbf24;background:rgba(251,191,36,.10);padding:12px 12px;border-radius:12px;color:#e5e7eb;font-size:13px;line-height:1.7;">
+        Lưu ý: Hệ thống sẽ gửi email nhắc thi vào <strong>07:00</strong> sáng ngày thi.
+        Vui lòng kiểm tra hộp thư đến (và mục Spam/Quảng cáo) để không bỏ lỡ thông báo.
+      </div>
+    </div>
+  `;
+
+  return buildEmailShell({
+    title: 'Xác nhận đăng ký thi chứng chỉ',
+    preheader: `Bạn đã đăng ký suất thi ngày ${dateLabel}.`,
+    bodyHtml: body,
+  });
+}
+
+function buildReminderEmail(payload: {
+  learnerName: string;
+  templateCode: string;
+  templateName: string;
+  examDate: Date;
+  durationMin: number;
+  totalQuestions: number;
+}) {
+  const dateLabel = formatDateVi(payload.examDate);
+  const body = `
+    <div style="color:#e5e7eb;">
+      <div style="font-size:18px;font-weight:900;letter-spacing:.2px;">Nhắc thi hôm nay</div>
+      <div style="margin-top:8px;color:#cbd5e1;font-size:13px;line-height:1.7;">
+        Chào <strong style="color:#fff;">${payload.learnerName || 'bạn'}</strong>, hôm nay (<strong style="color:#fff;">${dateLabel}</strong>) là ngày thi chứng chỉ bạn đã đăng ký.
+      </div>
+
+      <div style="margin-top:14px;border:1px solid rgba(148,163,184,.18);border-radius:14px;background:#0b1220;padding:14px 14px;">
+        <div style="font-weight:800;color:#fff;">Thông tin nhanh</div>
+        <div style="margin-top:8px;color:#e5e7eb;font-size:13px;line-height:1.7;">
+          <div><span style="color:#94a3b8;">Đề thi:</span> <strong>${payload.templateName}</strong> <span style="color:#94a3b8;">(${payload.templateCode})</span></div>
+          <div><span style="color:#94a3b8;">Thời lượng:</span> <strong>${payload.durationMin} phút</strong></div>
+          <div><span style="color:#94a3b8;">Tổng số câu:</span> <strong>${payload.totalQuestions} câu</strong></div>
+        </div>
+      </div>
+
+      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:220px;border:1px solid rgba(148,163,184,.18);border-radius:14px;background:rgba(59,130,246,.08);padding:12px 12px;">
+          <div style="font-weight:800;color:#fff;margin-bottom:6px;">Chuẩn bị</div>
+          <div style="color:#cbd5e1;font-size:13px;line-height:1.7;">
+            - Kết nối mạng ổn định<br/>
+            - Thiết bị & tai nghe (nếu có)<br/>
+            - Ở nơi yên tĩnh, tập trung
+          </div>
+        </div>
+        <div style="flex:1;min-width:220px;border:1px solid rgba(148,163,184,.18);border-radius:14px;background:rgba(251,191,36,.10);padding:12px 12px;">
+          <div style="font-weight:800;color:#fff;margin-bottom:6px;">Gợi ý</div>
+          <div style="color:#cbd5e1;font-size:13px;line-height:1.7;">
+            Hãy vào sớm vài phút để kiểm tra âm thanh và giao diện làm bài.
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  return buildEmailShell({
+    title: 'Nhắc thi hôm nay',
+    preheader: `Hôm nay (${dateLabel}) là ngày thi bạn đã đăng ký.`,
+    bodyHtml: body,
+  });
+}
+
+@Injectable()
+export class OfficialExamService {
+  private readonly logger = new Logger(OfficialExamService.name);
+
+  constructor(
+    @InjectRepository(ExamTemplate)
+    private readonly examTemplateRepository: Repository<ExamTemplate>,
+    @InjectRepository(OfficialExamRegistration)
+    private readonly registrationRepository: Repository<OfficialExamRegistration>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+    private readonly mailer: MailerService,
+  ) {}
+
+  async listAvailableSessions() {
+    const templates = await this.examTemplateRepository.find({
+      where: {
+        status: TemplateStatus.PUBLISHED,
+        mode: TemplateMode.OFFICIAL_EXAM,
+      },
+      order: { examDate: 'ASC' as any, publishedAt: 'DESC' as any },
+    });
+
+    const sessions = templates
+      .filter((t) => !!t.examDate)
+      .map((t) => ({
+        examDate: (t.examDate as Date).toISOString(),
+        template: {
+          id: t.id,
+          code: t.code,
+          name: t.name,
+          totalDurationSec: t.totalDurationSec,
+          totalQuestions: t.totalQuestions,
+        },
+      }));
+
+    // Group by date (yyyy-mm-dd local) for UI convenience
+    const map = new Map<string, typeof sessions>();
+    for (const s of sessions) {
+      const d = new Date(s.examDate);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const arr = map.get(key) ?? [];
+      arr.push(s);
+      map.set(key, arr);
+    }
+
+    return {
+      dates: [...map.entries()].map(([date, items]) => ({
+        date,
+        sessions: items,
+      })),
+    };
+  }
+
+  async register(userId: string, examTemplateId: string) {
+    const [user, template] = await Promise.all([
+      this.userRepository.findOne({ where: { id: userId } }),
+      this.examTemplateRepository.findOne({ where: { id: examTemplateId } }),
+    ]);
+
+    if (!user) throw new BadRequestException('User not found');
+    if (!template) throw new BadRequestException('Exam template not found');
+
+    if (template.status !== TemplateStatus.PUBLISHED) {
+      throw new BadRequestException('Exam template is not published');
+    }
+    if (template.mode !== TemplateMode.OFFICIAL_EXAM) {
+      throw new BadRequestException('Only official_exam can be registered');
+    }
+    if (!template.examDate) {
+      throw new BadRequestException('This official exam has no examDate configured');
+    }
+
+    const now = new Date();
+    const examDate = new Date(template.examDate);
+    if (endOfLocalDay(examDate) < startOfLocalDay(now)) {
+      throw new BadRequestException('Cannot register for a past exam date');
+    }
+
+    const existing = await this.registrationRepository.findOne({
+      where: { userId, examTemplateId: template.id },
+    });
+
+    if (existing && existing.status === 'registered') {
+      // Nếu đã đăng ký nhưng trước đó chưa gửi được email xác nhận, thử gửi lại (best-effort)
+      if (!existing.confirmationSentAt && user.email) {
+        const html = buildRegistrationConfirmationEmail({
+          learnerName: user.name ?? '',
+          templateCode: template.code,
+          templateName: template.name,
+          examDate,
+          durationMin: Math.round((template.totalDurationSec ?? 0) / 60),
+          totalQuestions: template.totalQuestions ?? 0,
+        });
+
+        try {
+          await this.mailer.sendMail({
+            to: user.email,
+            subject: `Xác nhận đăng ký thi chứng chỉ — ${formatDateVi(examDate)}`,
+            html,
+            text: `Bạn đã đăng ký thành công suất thi ngày ${formatDateVi(examDate)}.`,
+          });
+          await this.registrationRepository.update(existing.id, {
+            confirmationSentAt: new Date(),
+            metadata: {
+              ...(existing.metadata ?? {}),
+              confirmationEmailError: '',
+              confirmationEmailResentAt: new Date().toISOString(),
+            },
+          });
+          existing.confirmationSentAt = new Date();
+          (existing.metadata as any) = {
+            ...(existing.metadata ?? {}),
+            confirmationEmailError: null,
+          };
+        } catch (e) {
+          const err = e instanceof Error ? e.message : String(e);
+          this.logger.warn(
+            `Resend confirmation email failed for reg=${existing.id}, to=${user.email}: ${err}`,
+          );
+          await this.registrationRepository.update(existing.id, {
+            metadata: {
+              ...(existing.metadata ?? {}),
+              confirmationEmailError: err,
+              confirmationEmailFailedAt: new Date().toISOString(),
+            },
+          });
+          (existing.metadata as any) = {
+            ...(existing.metadata ?? {}),
+            confirmationEmailError: err,
+          };
+        }
+      }
+
+      return {
+        registered: true,
+        alreadyRegistered: true,
+        registrationId: existing.id,
+        examDate: examDate.toISOString(),
+        emailSent: Boolean(existing.confirmationSentAt),
+        emailError:
+          !existing.confirmationSentAt &&
+          (existing.metadata as any)?.confirmationEmailError
+            ? String((existing.metadata as any).confirmationEmailError || '')
+            : null,
+      };
+    }
+
+    const reg =
+      existing ??
+      this.registrationRepository.create({
+        createdById: userId,
+        userId,
+        examTemplateId: template.id,
+        status: OfficialExamRegistrationStatus.REGISTERED,
+        examDate,
+        registeredAt: now,
+        confirmationSentAt: null,
+        reminderSentAt: null,
+        metadata: {},
+      });
+
+    if (existing) {
+      reg.status = OfficialExamRegistrationStatus.REGISTERED;
+      reg.registeredAt = now;
+      reg.examDate = examDate;
+      reg.reminderSentAt = null;
+    }
+
+    const saved = await this.registrationRepository.save(reg);
+
+    // Send confirmation email (best-effort)
+    let emailSent = false;
+    let emailError: string | null = null;
+    if (user.email) {
+      const html = buildRegistrationConfirmationEmail({
+        learnerName: user.name ?? '',
+        templateCode: template.code,
+        templateName: template.name,
+        examDate,
+        durationMin: Math.round((template.totalDurationSec ?? 0) / 60),
+        totalQuestions: template.totalQuestions ?? 0,
+      });
+
+      try {
+        await this.mailer.sendMail({
+          to: user.email,
+          subject: `Xác nhận đăng ký thi chứng chỉ — ${formatDateVi(examDate)}`,
+          html,
+          text: `Bạn đã đăng ký thành công suất thi ngày ${formatDateVi(examDate)}.`,
+        });
+        emailSent = true;
+        await this.registrationRepository.update(saved.id, {
+          confirmationSentAt: new Date(),
+        });
+      } catch (e) {
+        // Không chặn đăng ký nếu SMTP lỗi (learner vẫn đăng ký thành công)
+        emailSent = false;
+        emailError = e instanceof Error ? e.message : String(e);
+        this.logger.warn(
+          `Send confirmation email failed for reg=${saved.id}, to=${user.email}: ${emailError}`,
+        );
+
+        // Lưu lỗi để learner/admin dễ debug trong lịch sử
+        await this.registrationRepository.update(saved.id, {
+          metadata: {
+            ...(saved.metadata ?? {}),
+            confirmationEmailError: emailError,
+            confirmationEmailFailedAt: new Date().toISOString(),
+          },
+        });
+      }
+    }
+
+    return {
+      registered: true,
+      alreadyRegistered: false,
+      registrationId: saved.id,
+      examDate: examDate.toISOString(),
+      emailSent,
+      emailError,
+    };
+  }
+
+  async listMyRegistrations(userId: string) {
+    const regs = await this.registrationRepository.find({
+      where: { userId },
+      relations: { examTemplate: true },
+      order: { registeredAt: 'DESC' as any },
+    });
+
+    return {
+      items: regs.map((r) => ({
+        id: r.id,
+        status: r.status,
+        examDate: r.examDate?.toISOString?.() ?? new Date(r.examDate).toISOString(),
+        registeredAt: r.registeredAt?.toISOString?.() ?? new Date(r.registeredAt).toISOString(),
+        confirmationSentAt: r.confirmationSentAt ? r.confirmationSentAt.toISOString() : null,
+        reminderSentAt: r.reminderSentAt ? r.reminderSentAt.toISOString() : null,
+        emailError:
+          !r.confirmationSentAt &&
+          (r.metadata as any)?.confirmationEmailError
+            ? String((r.metadata as any).confirmationEmailError || '')
+            : null,
+        template: r.examTemplate
+          ? {
+              id: r.examTemplate.id,
+              code: r.examTemplate.code,
+              name: r.examTemplate.name,
+              totalDurationSec: r.examTemplate.totalDurationSec,
+              totalQuestions: r.examTemplate.totalQuestions,
+            }
+          : null,
+      })),
+    };
+  }
+
+  async sendTodayReminders(now = new Date()) {
+    const dayStart = startOfLocalDay(now);
+    const dayEnd = endOfLocalDay(now);
+
+    const regs = await this.registrationRepository.find({
+      where: {
+        status: OfficialExamRegistrationStatus.REGISTERED,
+        reminderSentAt: IsNull(),
+      },
+      relations: {
+        user: true,
+        examTemplate: true,
+      },
+    });
+
+    const due = regs.filter(
+      (r) => r.examDate >= dayStart && r.examDate <= dayEnd,
+    );
+
+    for (const r of due) {
+      const user = r.user;
+      const tpl = r.examTemplate;
+      if (!user?.email || !tpl) continue;
+
+      const html = buildReminderEmail({
+        learnerName: user.name ?? '',
+        templateCode: tpl.code,
+        templateName: tpl.name,
+        examDate: r.examDate,
+        durationMin: Math.round((tpl.totalDurationSec ?? 0) / 60),
+        totalQuestions: tpl.totalQuestions ?? 0,
+      });
+
+      await this.mailer.sendMail({
+        to: user.email,
+        subject: `Nhắc thi hôm nay — ${formatDateVi(r.examDate)}`,
+        html,
+        text: `Hôm nay (${formatDateVi(r.examDate)}) là ngày thi bạn đã đăng ký.`,
+      });
+
+      await this.registrationRepository.update(r.id, {
+        reminderSentAt: new Date(),
+      });
+    }
+
+    return { processed: due.length };
+  }
+}
+

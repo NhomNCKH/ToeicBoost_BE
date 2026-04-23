@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
@@ -21,10 +22,14 @@ import { AdminModule } from '@modules/admin/admin.module';
 import { AssessmentModule } from '@modules/assessment/assessment.module';
 import { RedisModule } from './redis/redis.module'; // ← Thêm
 import { ProctoringModule } from './proctoring/proctoring.module'; // ← Thêm
+import { FlashcardsModule } from '@modules/flashcards/flashcards.module';
+import { VocabularyModule } from '@modules/vocabulary/vocabulary.module';
+import { NotificationModule } from '@modules/notification/notification.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ScheduleModule.forRoot(),
 
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
@@ -72,6 +77,11 @@ import { ProctoringModule } from './proctoring/proctoring.module'; // ← Thêm
 
     RedisModule,
     ProctoringModule,
+    FlashcardsModule,
+
+    VocabularyModule,
+
+    NotificationModule,
   ],
   controllers: [AppController],
   providers: [
