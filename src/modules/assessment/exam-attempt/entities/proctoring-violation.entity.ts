@@ -17,6 +17,9 @@ export class ProctoringViolation {
   @Column({ name: 'exam_id' })
   examId: string;
 
+  @Column({ name: 'exam_attempt_id', type: 'uuid', nullable: true })
+  examAttemptId: string | null;
+
   @Column({ name: 'violation_type' })
   violationType: string;
 

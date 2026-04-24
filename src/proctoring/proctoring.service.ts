@@ -4,7 +4,7 @@ import { ExamAttempt } from '@modules/assessment/exam-attempt/entities/exam-atte
 import { ProctoringViolation } from '@modules/assessment/exam-attempt/entities/proctoring-violation.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Redis } from 'ioredis';
-import { In, Repository } from 'typeorm';
+import { FindOptionsWhere, In, Repository } from 'typeorm';
 
 interface ViolationDetail {
   action?: string;
@@ -66,6 +66,7 @@ export class ProctoringService {
         this.violationRepository.save({
           userId: payload.userId,
           examId: canonicalExamId,
+          examAttemptId: context.attempt?.id ?? payload.examAttemptId ?? null,
           violationType: violation.action ?? 'unknown',
           message: violation.message,
           severity: violation.severity ?? 1,
@@ -158,6 +159,31 @@ export class ProctoringService {
         userId,
         examId: In(examIds),
       },
+      order: { timestamp: 'DESC' },
+      skip: offset,
+      take: limit,
+    });
+
+    return { data, total };
+  }
+
+  async listViolationHistoryPaginated(
+    limit: number,
+    offset: number,
+    filters?: { userId?: string; examId?: string },
+  ): Promise<{ data: ProctoringViolation[]; total: number }> {
+    const where: FindOptionsWhere<ProctoringViolation> = {};
+
+    if (filters?.userId) {
+      where.userId = filters.userId;
+    }
+
+    if (filters?.examId) {
+      where.examId = filters.examId;
+    }
+
+    const [data, total] = await this.violationRepository.findAndCount({
+      where,
       order: { timestamp: 'DESC' },
       skip: offset,
       take: limit,

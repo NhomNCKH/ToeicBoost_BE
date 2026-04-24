@@ -72,6 +72,26 @@ export class ProctoringController {
     };
   }
 
+  @Get('violations')
+  @Roles('admin', 'proctor')
+  async listViolations(@Query() queryDto: GetViolationsQueryDto) {
+    const result = await this.proctoringService.listViolationHistoryPaginated(
+      queryDto.limit,
+      queryDto.offset,
+      {
+        userId: queryDto.userId,
+        examId: queryDto.examId,
+      },
+    );
+
+    return {
+      total: result.total,
+      limit: queryDto.limit,
+      offset: queryDto.offset,
+      data: result.data,
+    };
+  }
+
   @Post('report-violation')
   async reportViolation(@Body() dto: ReportViolationDto) {
     if (
