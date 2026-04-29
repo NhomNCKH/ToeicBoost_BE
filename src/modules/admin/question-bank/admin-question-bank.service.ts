@@ -148,7 +148,8 @@ export class AdminQuestionBankService {
       .leftJoinAndSelect('qg.questionGroupTags', 'qgt')
       .leftJoinAndSelect('qgt.tag', 'tag')
       .loadRelationCountAndMap('qg.questionCount', 'qg.questions')
-      .where('qg.deletedAt IS NULL');
+      .where('qg.deletedAt IS NULL')
+      .andWhere(`qg.skillScope = 'listening_reading'`);
 
     if (query.part) qb.andWhere('qg.part = :part', { part: query.part });
     if (query.level) qb.andWhere('qg.level = :level', { level: query.level });
@@ -167,6 +168,25 @@ export class AdminQuestionBankService {
       qb.andWhere(
         '(qg.code ILIKE :keyword OR qg.title ILIKE :keyword OR qg.stem ILIKE :keyword OR q.prompt ILIKE :keyword)',
         { keyword: `%${query.keyword.trim()}%` },
+      );
+    }
+
+    const objectiveOnly = query.objectiveOnly !== false;
+    if (objectiveOnly) {
+      qb.andWhere(
+        'EXISTS (SELECT 1 FROM questions q_exist WHERE q_exist.question_group_id = qg.id)',
+      );
+      qb.andWhere(
+        `NOT EXISTS (
+          SELECT 1
+          FROM questions q_bad
+          WHERE q_bad.question_group_id = qg.id
+            AND (
+              SELECT COUNT(1)
+              FROM question_options qo
+              WHERE qo.question_id = q_bad.id
+            ) < 2
+        )`,
       );
     }
 
@@ -194,6 +214,7 @@ export class AdminQuestionBankService {
 
     const questionGroupId = await this.dataSource.transaction(
       async (manager) => {
+        const skillScope = this.resolveSkillScopeFromPayload(dto);
         const questionGroup = manager.getRepository(QuestionGroup).create({
           code: dto.code.trim(),
           title: dto.title.trim(),
@@ -203,6 +224,7 @@ export class AdminQuestionBankService {
           stem: dto.stem?.trim() ?? null,
           explanation: dto.explanation?.trim() ?? null,
           sourceType: dto.sourceType?.trim() ?? 'manual',
+          skillScope,
           sourceRef: dto.sourceRef?.trim() ?? null,
           metadata: dto.metadata ?? {},
           createdById: userId,
@@ -297,6 +319,33 @@ export class AdminQuestionBankService {
           metadata: dto.metadata ?? existing.metadata,
           updatedById: userId,
         });
+
+        if (
+          dto.questions !== undefined ||
+          dto.sourceType !== undefined ||
+          dto.sourceRef !== undefined ||
+          dto.metadata !== undefined
+        ) {
+          if (dto.questions !== undefined) {
+            existing.skillScope = this.resolveSkillScopeFromPayload({
+              questions: dto.questions as any,
+              sourceType: existing.sourceType,
+              sourceRef: existing.sourceRef ?? undefined,
+              metadata: existing.metadata ?? {},
+            });
+          } else if (
+            this.hasSpeakingWritingHint(
+              existing.sourceType,
+              existing.sourceRef ?? undefined,
+              existing.metadata ?? {},
+            )
+          ) {
+            existing.skillScope = 'other_skills';
+          } else {
+            // Keep previous scope if no question payload update.
+            existing.skillScope = existing.skillScope ?? 'listening_reading';
+          }
+        }
 
         await manager.getRepository(QuestionGroup).save(existing);
 
@@ -951,6 +1000,39 @@ export class AdminQuestionBankService {
     );
     questionGroup.reviews?.sort(
       (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+    );
+  }
+
+  private resolveSkillScopeFromPayload(
+    dto: Pick<
+      CreateQuestionGroupDto,
+      'questions' | 'sourceType' | 'sourceRef' | 'metadata'
+    >,
+  ): string {
+    if (
+      this.hasSpeakingWritingHint(dto.sourceType, dto.sourceRef, dto.metadata ?? {})
+    ) {
+      return 'other_skills';
+    }
+    const questions = dto.questions ?? [];
+    if (questions.length === 0) return 'other_skills';
+    const isObjective = questions.every((question) => {
+      const options = question.options ?? [];
+      return options.length >= 2;
+    });
+    return isObjective ? 'listening_reading' : 'other_skills';
+  }
+
+  private hasSpeakingWritingHint(
+    sourceType?: string,
+    sourceRef?: string,
+    metadata?: Record<string, unknown>,
+  ): boolean {
+    const source = `${sourceType ?? ''} ${sourceRef ?? ''}`.toLowerCase();
+    if (/(speaking|writing)/i.test(source)) return true;
+    const metaText = JSON.stringify(metadata ?? {}).toLowerCase();
+    return /(toeic-speaking|toeic-writing|"skill":"speaking"|"skill":"writing")/i.test(
+      metaText,
     );
   }
 

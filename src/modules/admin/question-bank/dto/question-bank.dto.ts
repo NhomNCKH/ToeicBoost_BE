@@ -264,6 +264,17 @@ export class QuestionGroupQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsUUID()
   createdBy?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Chỉ lấy nhóm câu hỏi objective dùng cho Listening/Reading (có câu hỏi và mỗi câu có >= 2 đáp án)',
+    example: true,
+    default: true,
+  })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  objectiveOnly?: boolean = true;
 }
 
 export class BulkTagQuestionGroupsDto {

@@ -363,10 +363,11 @@ export class AdminExamTemplateService {
       where: {
         id: In(groupIds),
         status: QuestionGroupStatus.PUBLISHED,
+        skillScope: 'listening_reading',
         deletedAt: IsNull(),
       },
       relations: {
-        questions: true,
+        questions: { options: true },
         assets: true,
       },
     });
@@ -379,6 +380,27 @@ export class AdminExamTemplateService {
     const existingGroupIds = new Set(
       template.items.map((item) => item.questionGroupId),
     );
+    const sectionPartById = new Map(sections.map((section) => [section.id, section.part]));
+    const groupById = new Map(groups.map((group) => [group.id, group]));
+
+    for (const item of dto.items) {
+      const sectionPart = sectionPartById.get(item.sectionId);
+      const group = groupById.get(item.questionGroupId);
+      if (!sectionPart || !group) {
+        throw new BadRequestException('Invalid manual item payload');
+      }
+      if (group.part !== sectionPart) {
+        throw new BadRequestException(
+          `Question group part ${group.part} does not match section part ${sectionPart}`,
+        );
+      }
+      if (!this.isObjectiveQuestionGroup(group)) {
+        throw new BadRequestException(
+          `Question group is not valid for exam auto-grading: ${group.id}`,
+        );
+      }
+    }
+
     for (const groupId of groupIds) {
       if (existingGroupIds.has(groupId)) {
         throw new BadRequestException(
@@ -493,20 +515,34 @@ export class AdminExamTemplateService {
     }
 
     const refreshedTemplate = await this.getTemplateDetail(templateId);
+    const invalidItemIdsInTargetParts = refreshedTemplate.items
+      .filter(
+        (item) =>
+          targetParts.includes(item.section.part) &&
+          !this.isObjectiveQuestionGroup(item.questionGroup),
+      )
+      .map((item) => item.id);
+    if (invalidItemIdsInTargetParts.length > 0) {
+      await this.examTemplateItemRepository.delete(invalidItemIdsInTargetParts);
+    }
+    const cleanTemplate =
+      invalidItemIdsInTargetParts.length > 0
+        ? await this.getTemplateDetail(templateId)
+        : refreshedTemplate;
     let nextDisplayOrder =
-      refreshedTemplate.items.reduce(
+      cleanTemplate.items.reduce(
         (max, item) => Math.max(max, item.displayOrder),
         0,
       ) + 1;
 
     const existingGroupIds = new Set(
-      refreshedTemplate.items.map((item) => item.questionGroupId),
+      cleanTemplate.items.map((item) => item.questionGroupId),
     );
 
-    for (const section of refreshedTemplate.sections.filter((candidate) =>
+    for (const section of cleanTemplate.sections.filter((candidate) =>
       targetParts.includes(candidate.part),
     )) {
-      const sectionRules = refreshedTemplate.rules.filter(
+      const sectionRules = cleanTemplate.rules.filter(
         (candidate) => candidate.part === section.part,
       );
 
@@ -898,10 +934,11 @@ export class AdminExamTemplateService {
       where: {
         part,
         status: QuestionGroupStatus.PUBLISHED,
+        skillScope: 'listening_reading',
         deletedAt: IsNull(),
       },
       relations: {
-        questions: true,
+        questions: { options: true },
         assets: true,
         questionGroupTags: { tag: true },
       },
@@ -910,6 +947,7 @@ export class AdminExamTemplateService {
 
     return candidates.filter((candidate) => {
       if (existingGroupIds.has(candidate.id)) return false;
+      if (!this.isObjectiveQuestionGroup(candidate)) return false;
 
       const tagCodes = candidate.questionGroupTags.map((item) => item.tag.code);
 
@@ -924,6 +962,16 @@ export class AdminExamTemplateService {
       if (hasExcluded) return false;
 
       return true;
+    });
+  }
+
+  private isObjectiveQuestionGroup(candidate: QuestionGroup): boolean {
+    const questions = candidate.questions ?? [];
+    if (questions.length === 0) return false;
+    return questions.every((question) => {
+      const options = question.options ?? [];
+      // TOEIC Listening/Reading groups should be objective (>=2 options).
+      return options.length >= 2;
     });
   }
 

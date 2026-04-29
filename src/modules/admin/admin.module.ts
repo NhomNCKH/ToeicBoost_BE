@@ -6,6 +6,7 @@ import { AdminCredentialModule } from './credential/admin-credential.module';
 import { AdminDashboardModule } from './dashboard/admin-dashboard.module';
 import { AdminSettingsModule } from './settings/admin-settings.module';
 import { AdminAuditModule } from './audit/admin-audit.module';
+import { AdminSkillTasksModule } from './skill-tasks/admin-skill-tasks.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { AdminAuditModule } from './audit/admin-audit.module';
     AdminDashboardModule,
     AdminSettingsModule,
     AdminAuditModule,
+    AdminSkillTasksModule,
   ],
 })
 export class AdminModule {}

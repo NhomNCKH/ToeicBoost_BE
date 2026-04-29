@@ -25,7 +25,9 @@
     "migration:show": "npm run typeorm -- migration:show",
     "seed:toeic-reading": "ts-node -r tsconfig-paths/register src/database/seeds/run-seed-toeic-reading.ts",
     "seed:toeic-reading-p7-extra": "ts-node -r tsconfig-paths/register src/database/seeds/run-seed-toeic-reading-p7-extra.ts",
-    "seed:vocabulary": "ts-node -r tsconfig-paths/register src/database/seeds/run-seed-vocabulary.ts"
+    "seed:vocabulary": "ts-node -r tsconfig-paths/register src/database/seeds/run-seed-vocabulary.ts",
+    "seed:toeic-listening-speaking": "ts-node -r tsconfig-paths/register src/database/seeds/run-seed-toeic-listening-speaking.ts",
+    "seed:toeic-speaking-writing-sets": "ts-node -r tsconfig-paths/register src/database/seeds/run-seed-toeic-speaking-writing-sets.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1015.0",

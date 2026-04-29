@@ -23,6 +23,7 @@ import { AssessmentModule } from '@modules/assessment/assessment.module';
 import { FlashcardsModule } from '@modules/flashcards/flashcards.module';
 import { VocabularyModule } from '@modules/vocabulary/vocabulary.module';
 import { NotificationModule } from '@modules/notification/notification.module';
+import { AiTutorModule } from '@modules/ai-tutor/ai-tutor.module';
 
 @Module({
   imports: [
@@ -82,6 +83,8 @@ import { NotificationModule } from '@modules/notification/notification.module';
     VocabularyModule,
 
     NotificationModule,
+
+    AiTutorModule,
   ],
   controllers: [AppController],
   providers: [

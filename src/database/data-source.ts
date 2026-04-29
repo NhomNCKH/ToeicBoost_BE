@@ -11,6 +11,12 @@ import { AddPronunciationToVocabularyItems1749100900000 } from './migrations/174
 import { AddExamDateToExamTemplates1749101100000 } from './migrations/1749101100000-AddExamDateToExamTemplates';
 import { CreateOfficialExamRegistrations1761303000000 } from './migrations/1761303000000-CreateOfficialExamRegistrations';
 import { FixOfficialExamRegistrationsBaseEntityColumns1761303000001 } from './migrations/1761303000001-FixOfficialExamRegistrationsBaseEntityColumns';
+import { CreateToeicSkillTaskTables1761860000000 } from './migrations/1761860000000-CreateToeicSkillTaskTables';
+import { CreateToeicSpeakingSetTables1761860000001 } from './migrations/1761860000001-CreateToeicSpeakingSetTables';
+import { ExpandToeicSpeakingTaskTypeEnum1761860000002 } from './migrations/1761860000002-ExpandToeicSpeakingTaskTypeEnum';
+import { CreateToeicWritingSetTables1761860000003 } from './migrations/1761860000003-CreateToeicWritingSetTables';
+import { AddSkillScopeToQuestionGroups1761860000004 } from './migrations/1761860000004-AddSkillScopeToQuestionGroups';
+import { ReclassifyQuestionGroupsSkillScope1761860000005 } from './migrations/1761860000005-ReclassifyQuestionGroupsSkillScope';
 dotenv.config();
 
 const dbConfig = getDatabaseConfig();
@@ -34,7 +40,13 @@ const dataSource = new DataSource({
     // AddPronunciationToVocabularyItems1749100900000,
     // AddExamDateToExamTemplates1749101100000,
     // CreateOfficialExamRegistrations1761303000000,
-    FixOfficialExamRegistrationsBaseEntityColumns1761303000001,
+    // FixOfficialExamRegistrationsBaseEntityColumns1761303000001,
+    // CreateToeicSkillTaskTables1761860000000,
+    // CreateToeicSpeakingSetTables1761860000001,
+    // ExpandToeicSpeakingTaskTypeEnum1761860000002,
+    // CreateToeicWritingSetTables1761860000003,
+    // AddSkillScopeToQuestionGroups1761860000004,
+    ReclassifyQuestionGroupsSkillScope1761860000005,
   ],
   migrationsTableName: 'migrations',  
 });

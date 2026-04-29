@@ -64,6 +64,15 @@ export class QuestionGroup extends BaseEntity {
   @Column({ name: 'source_type', type: 'varchar', length: 30 })
   sourceType: string;
 
+  @Index('idx_question_groups_skill_scope')
+  @Column({
+    name: 'skill_scope',
+    type: 'varchar',
+    length: 30,
+    default: 'listening_reading',
+  })
+  skillScope: string;
+
   @Column({ name: 'source_ref', type: 'varchar', length: 255, nullable: true })
   sourceRef: string | null;
 
