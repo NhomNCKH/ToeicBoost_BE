@@ -37,24 +37,37 @@ function buildEmailShell(opts: { title: string; preheader?: string; bodyHtml: st
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${opts.title}</title>
   </head>
-  <body style="margin:0;padding:0;background:#0b1220;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;">
+  <body style="margin:0;padding:0;background:#ffffff;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;color:#0f172a;">
     <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${preheader}</div>
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#0b1220;padding:28px 12px;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#ffffff;padding:32px 12px;">
       <tr>
         <td align="center">
-          <table role="presentation" width="640" cellspacing="0" cellpadding="0" style="max-width:640px;width:100%;background:#0f1b33;border:1px solid rgba(148,163,184,.18);border-radius:18px;overflow:hidden;">
+          <table role="presentation" width="640" cellspacing="0" cellpadding="0" style="max-width:640px;width:100%;background:#ffffff;border:1px solid #e5e7eb;border-radius:20px;overflow:hidden;">
             <tr>
-              <td style="background:linear-gradient(90deg,#f59e0b,#fbbf24);padding:18px 22px;">
-                <div style="font-weight:800;color:#111827;font-size:16px;letter-spacing:.2px;">ToeicBoost — Official Exam</div>
-                <div style="font-weight:700;color:rgba(17,24,39,.78);font-size:12px;margin-top:4px;">Thông báo đăng ký & lịch thi</div>
+              <td style="padding:0 24px;">
+                <div style="height:5px;background:#f59e0b;"></div>
               </td>
             </tr>
             <tr>
-              <td style="padding:22px;">
+              <td style="padding:24px 24px 18px 24px;background:#ffffff;border-bottom:1px solid #e5e7eb;">
+                <div style="display:inline-block;padding:6px 10px;border-radius:999px;background:#fff7ed;color:#9a3412;font-size:11px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;">
+                  Official Exam
+                </div>
+                <div style="margin-top:14px;font-weight:800;color:#0f172a;font-size:24px;letter-spacing:-.3px;">ToeicBoost</div>
+                <div style="margin-top:6px;color:#475569;font-size:14px;line-height:1.6;">
+                  Thông báo đăng ký và lịch thi chứng chỉ TOEIC.
+                </div>
+                <div style="margin-top:16px;font-size:12px;color:#94a3b8;">
+                  Email tự động từ hệ thống. Vui lòng không trả lời trực tiếp email này.
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:26px 24px 24px 24px;background:#ffffff;">
                 ${opts.bodyHtml}
-                <div style="margin-top:20px;padding-top:14px;border-top:1px solid rgba(148,163,184,.18);color:#94a3b8;font-size:12px;line-height:1.6;">
-                  Nếu bạn không thực hiện hành động này, bạn có thể bỏ qua email.
-                  <br/>© ${new Date().getFullYear()} ToeicBoost.
+                <div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;color:#64748b;font-size:12px;line-height:1.7;">
+                  Nếu bạn không thực hiện hành động này, bạn có thể bỏ qua email này.
+                  <br />© ${new Date().getFullYear()} ToeicBoost. All rights reserved.
                 </div>
               </td>
             </tr>
@@ -76,44 +89,44 @@ function buildRegistrationConfirmationEmail(payload: {
 }) {
   const dateLabel = formatDateVi(payload.examDate);
   const body = `
-    <div style="color:#e5e7eb;">
-      <div style="font-size:18px;font-weight:800;letter-spacing:.2px;">Xác nhận đăng ký thi chứng chỉ</div>
-      <div style="margin-top:8px;color:#cbd5e1;font-size:13px;line-height:1.7;">
-        Chào <strong style="color:#fff;">${payload.learnerName || 'bạn'}</strong>, bạn đã đăng ký thành công suất thi ngày <strong style="color:#fff;">${dateLabel}</strong>.
+    <div style="color:#0f172a;">
+      <div style="font-size:28px;font-weight:800;letter-spacing:-.4px;line-height:1.3;">Xác nhận đăng ký thi chứng chỉ</div>
+      <div style="margin-top:10px;color:#475569;font-size:15px;line-height:1.8;">
+        Chào <strong style="color:#0f172a;">${payload.learnerName || 'bạn'}</strong>, bạn đã đăng ký thành công suất thi vào ngày <strong style="color:#0f172a;">${dateLabel}</strong>.
       </div>
 
-      <div style="margin-top:14px;border:1px solid rgba(148,163,184,.18);border-radius:14px;background:#0b1220;padding:14px 14px;">
-        <div style="display:flex;gap:10px;align-items:center;">
-          <div style="width:10px;height:10px;border-radius:999px;background:#fbbf24;"></div>
-          <div style="font-weight:800;color:#fff;">Thông tin suất thi</div>
+      <div style="margin-top:20px;border:1px solid #e5e7eb;border-radius:18px;background:#f8fafc;padding:18px;">
+        <div style="font-size:12px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;color:#b45309;">Thông tin suất thi</div>
+        <div style="margin-top:8px;font-size:20px;font-weight:800;color:#0f172a;line-height:1.4;">
+          ${payload.templateName}
         </div>
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:10px;color:#e5e7eb;font-size:13px;">
+        <div style="margin-top:4px;color:#64748b;font-size:13px;">
+          Mã đề: ${payload.templateCode}
+        </div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:16px;color:#0f172a;font-size:14px;">
           <tr>
-            <td style="padding:6px 0;color:#94a3b8;width:38%;">Đề thi</td>
-            <td style="padding:6px 0;font-weight:700;">${payload.templateName} <span style="color:#94a3b8;font-weight:600;">(${payload.templateCode})</span></td>
+            <td style="padding:10px 0;color:#64748b;width:38%;border-top:1px solid #e2e8f0;">Ngày thi</td>
+            <td style="padding:10px 0;font-weight:700;border-top:1px solid #e2e8f0;">${dateLabel}</td>
           </tr>
           <tr>
-            <td style="padding:6px 0;color:#94a3b8;">Ngày thi</td>
-            <td style="padding:6px 0;font-weight:700;">${dateLabel}</td>
+            <td style="padding:10px 0;color:#64748b;border-top:1px solid #e2e8f0;">Giờ nhắc thi</td>
+            <td style="padding:10px 0;font-weight:700;border-top:1px solid #e2e8f0;">07:00 (sáng)</td>
           </tr>
           <tr>
-            <td style="padding:6px 0;color:#94a3b8;">Giờ nhắc thi</td>
-            <td style="padding:6px 0;font-weight:700;">07:00 (sáng)</td>
+            <td style="padding:10px 0;color:#64748b;border-top:1px solid #e2e8f0;">Thời lượng</td>
+            <td style="padding:10px 0;font-weight:700;border-top:1px solid #e2e8f0;">${payload.durationMin} phút</td>
           </tr>
           <tr>
-            <td style="padding:6px 0;color:#94a3b8;">Thời lượng</td>
-            <td style="padding:6px 0;font-weight:700;">${payload.durationMin} phút</td>
-          </tr>
-          <tr>
-            <td style="padding:6px 0;color:#94a3b8;">Tổng số câu</td>
-            <td style="padding:6px 0;font-weight:700;">${payload.totalQuestions} câu</td>
+            <td style="padding:10px 0;color:#64748b;border-top:1px solid #e2e8f0;">Tổng số câu</td>
+            <td style="padding:10px 0;font-weight:700;border-top:1px solid #e2e8f0;">${payload.totalQuestions} câu</td>
           </tr>
         </table>
       </div>
 
-      <div style="margin-top:14px;border-left:4px solid #fbbf24;background:rgba(251,191,36,.10);padding:12px 12px;border-radius:12px;color:#e5e7eb;font-size:13px;line-height:1.7;">
-        Lưu ý: Hệ thống sẽ gửi email nhắc thi vào <strong>07:00</strong> sáng ngày thi.
-        Vui lòng kiểm tra hộp thư đến (và mục Spam/Quảng cáo) để không bỏ lỡ thông báo.
+      <div style="margin-top:18px;border:1px solid #fde68a;background:#fffbeb;padding:16px;border-radius:16px;color:#78350f;font-size:14px;line-height:1.8;">
+        <div style="font-weight:800;color:#92400e;margin-bottom:6px;">Lưu ý quan trọng</div>
+        Hệ thống sẽ gửi email nhắc thi vào <strong>07:00</strong> sáng ngày thi.
+        Vui lòng kiểm tra hộp thư đến và mục Spam/Quảng cáo để không bỏ lỡ thông báo.
       </div>
     </div>
   `;
@@ -135,36 +148,52 @@ function buildReminderEmail(payload: {
 }) {
   const dateLabel = formatDateVi(payload.examDate);
   const body = `
-    <div style="color:#e5e7eb;">
-      <div style="font-size:18px;font-weight:900;letter-spacing:.2px;">Nhắc thi hôm nay</div>
-      <div style="margin-top:8px;color:#cbd5e1;font-size:13px;line-height:1.7;">
-        Chào <strong style="color:#fff;">${payload.learnerName || 'bạn'}</strong>, hôm nay (<strong style="color:#fff;">${dateLabel}</strong>) là ngày thi chứng chỉ bạn đã đăng ký.
+    <div style="color:#0f172a;">
+      <div style="font-size:28px;font-weight:800;letter-spacing:-.4px;line-height:1.3;">Nhắc thi hôm nay</div>
+      <div style="margin-top:10px;color:#475569;font-size:15px;line-height:1.8;">
+        Chào <strong style="color:#0f172a;">${payload.learnerName || 'bạn'}</strong>, hôm nay (<strong style="color:#0f172a;">${dateLabel}</strong>) là ngày thi chứng chỉ bạn đã đăng ký.
       </div>
 
-      <div style="margin-top:14px;border:1px solid rgba(148,163,184,.18);border-radius:14px;background:#0b1220;padding:14px 14px;">
-        <div style="font-weight:800;color:#fff;">Thông tin nhanh</div>
-        <div style="margin-top:8px;color:#e5e7eb;font-size:13px;line-height:1.7;">
-          <div><span style="color:#94a3b8;">Đề thi:</span> <strong>${payload.templateName}</strong> <span style="color:#94a3b8;">(${payload.templateCode})</span></div>
-          <div><span style="color:#94a3b8;">Thời lượng:</span> <strong>${payload.durationMin} phút</strong></div>
-          <div><span style="color:#94a3b8;">Tổng số câu:</span> <strong>${payload.totalQuestions} câu</strong></div>
+      <div style="margin-top:20px;border:1px solid #e5e7eb;border-radius:18px;background:#f8fafc;padding:18px;">
+        <div style="font-size:12px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;color:#b45309;">Thông tin nhanh</div>
+        <div style="margin-top:8px;font-size:20px;font-weight:800;color:#0f172a;line-height:1.4;">
+          ${payload.templateName}
+        </div>
+        <div style="margin-top:4px;color:#64748b;font-size:13px;">Mã đề: ${payload.templateCode}</div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:16px;color:#0f172a;font-size:14px;">
+          <tr>
+            <td style="padding:10px 0;color:#64748b;width:38%;border-top:1px solid #e2e8f0;">Ngày thi</td>
+            <td style="padding:10px 0;font-weight:700;border-top:1px solid #e2e8f0;">${dateLabel}</td>
+          </tr>
+          <tr>
+            <td style="padding:10px 0;color:#64748b;border-top:1px solid #e2e8f0;">Thời lượng</td>
+            <td style="padding:10px 0;font-weight:700;border-top:1px solid #e2e8f0;">${payload.durationMin} phút</td>
+          </tr>
+          <tr>
+            <td style="padding:10px 0;color:#64748b;border-top:1px solid #e2e8f0;">Tổng số câu</td>
+            <td style="padding:10px 0;font-weight:700;border-top:1px solid #e2e8f0;">${payload.totalQuestions} câu</td>
+          </tr>
+        </table>
+      </div>
+
+      <div style="margin-top:18px;">
+        <div style="border:1px solid #dbeafe;border-radius:16px;background:#f8fbff;padding:16px;">
+          <div style="font-weight:800;color:#1d4ed8;margin-bottom:8px;">Chuẩn bị trước giờ thi</div>
+          <div style="color:#334155;font-size:14px;line-height:1.8;">
+            - Kết nối mạng ổn định<br />
+            - Thiết bị làm bài và tai nghe nếu cần<br />
+            - Không gian yên tĩnh, đủ tập trung
+          </div>
         </div>
       </div>
 
-      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:220px;border:1px solid rgba(148,163,184,.18);border-radius:14px;background:rgba(59,130,246,.08);padding:12px 12px;">
-          <div style="font-weight:800;color:#fff;margin-bottom:6px;">Chuẩn bị</div>
-          <div style="color:#cbd5e1;font-size:13px;line-height:1.7;">
-            - Kết nối mạng ổn định<br/>
-            - Thiết bị & tai nghe (nếu có)<br/>
-            - Ở nơi yên tĩnh, tập trung
-          </div>
-        </div>
-        <div style="flex:1;min-width:220px;border:1px solid rgba(148,163,184,.18);border-radius:14px;background:rgba(251,191,36,.10);padding:12px 12px;">
-          <div style="font-weight:800;color:#fff;margin-bottom:6px;">Gợi ý</div>
-          <div style="color:#cbd5e1;font-size:13px;line-height:1.7;">
-            Hãy vào sớm vài phút để kiểm tra âm thanh và giao diện làm bài.
-          </div>
-        </div>
+      <div style="margin-top:14px;border:1px solid #fde68a;background:#fffbeb;padding:16px;border-radius:16px;color:#78350f;font-size:14px;line-height:1.8;">
+        <div style="font-weight:800;color:#92400e;margin-bottom:6px;">Khuyến nghị</div>
+        Hãy vào sớm vài phút để kiểm tra âm thanh, kết nối và giao diện làm bài trước khi bắt đầu.
+      </div>
+      
+      <div style="margin-top:14px;padding:14px 16px;border-radius:16px;background:#f8fafc;border:1px solid #e5e7eb;color:#475569;font-size:13px;line-height:1.7;">
+        Nếu bạn đã hoàn tất chuẩn bị, bạn chỉ cần theo dõi email nhắc thi và vào hệ thống đúng giờ.
       </div>
     </div>
   `;
@@ -481,4 +510,3 @@ export class OfficialExamService {
     return { processed: due.length };
   }
 }
-
