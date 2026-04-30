@@ -11,9 +11,7 @@ import { AdminDashboardService } from './admin-dashboard.service';
 @Roles(UserRole.ADMIN)
 @Controller('admin/dashboard')
 export class AdminDashboardController {
-  constructor(
-    private readonly adminDashboardService: AdminDashboardService,
-  ) {}
+  constructor(private readonly adminDashboardService: AdminDashboardService) {}
 
   @Get('summary')
   @ApiOperation({ summary: 'Lấy dữ liệu tổng quan dashboard quản trị' })

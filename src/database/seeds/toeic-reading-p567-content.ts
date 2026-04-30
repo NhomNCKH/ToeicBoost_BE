@@ -53,8 +53,7 @@ export function buildP5Items(): McqDef[] {
       options: ['conduct', 'conducting', 'conducted', 'conductive'],
     },
     {
-      prompt:
-        'Please ------- that all visitors sign in at the reception desk.',
+      prompt: 'Please ------- that all visitors sign in at the reception desk.',
       answerKey: 'D',
       options: ['certain', 'certainly', 'certainty', 'ensure'],
     },
@@ -114,7 +113,12 @@ export function buildP5Items(): McqDef[] {
     {
       prompt: 'The venue can ------- up to 200 guests.',
       answerKey: 'B',
-      options: ['accommodation', 'accommodate', 'accommodating', 'accommodated'],
+      options: [
+        'accommodation',
+        'accommodate',
+        'accommodating',
+        'accommodated',
+      ],
     },
     {
       prompt: 'Costs are likely to ------- unless we negotiate a discount.',
@@ -139,7 +143,12 @@ export function buildP5Items(): McqDef[] {
     {
       prompt: 'We apologize for any ------- caused by the delay.',
       answerKey: 'A',
-      options: ['inconvenience', 'inconvenient', 'inconveniently', 'inconveniences'],
+      options: [
+        'inconvenience',
+        'inconvenient',
+        'inconveniently',
+        'inconveniences',
+      ],
     },
     {
       prompt: 'The technician is ------- the network for security issues.',
@@ -474,7 +483,12 @@ export function buildP6Passages(): { stem: string; items: McqDef[] }[] {
         {
           prompt: '(2)',
           answerKey: 'A',
-          options: ['Alternatively', 'Alternative', 'Alternating', 'Alternates'],
+          options: [
+            'Alternatively',
+            'Alternative',
+            'Alternating',
+            'Alternates',
+          ],
         },
         {
           prompt: '(3)',
@@ -720,7 +734,12 @@ export function buildP7Passages(): { stem: string; items: McqDef[] }[] {
       {
         prompt: 'Where should visitors register?',
         answerKey: 'C',
-        options: ['Online only', 'At the exit', 'At the information desk', 'By phone'],
+        options: [
+          'Online only',
+          'At the exit',
+          'At the information desk',
+          'By phone',
+        ],
       },
       {
         prompt: 'What is the event mainly about?',
@@ -846,7 +865,12 @@ export function buildP7Passages(): { stem: string; items: McqDef[] }[] {
       {
         prompt: 'What identifier is mentioned?',
         answerKey: 'D',
-        options: ['Phone number', 'Email address', 'ZIP code', 'Account number'],
+        options: [
+          'Phone number',
+          'Email address',
+          'ZIP code',
+          'Account number',
+        ],
       },
     ],
   ];

@@ -381,7 +381,7 @@ export class AdminRbacService {
 
     if (query.status) {
       qb.andWhere('user.status = :status', {
-        status: query.status as UserStatus,
+        status: query.status,
       });
     } else {
       // Hide soft-deleted users by default in admin list.

@@ -13,16 +13,25 @@
  *
  * Nội dung câu hỏi là văn bản mẫu phong cách TOEIC, không sao chép đề ETS.
  */
-import * as path from 'path';
 import * as dotenv from 'dotenv';
+import * as path from 'path';
 import { DataSource } from 'typeorm';
+import { TemplateItemMode, TemplateMode, TemplateStatus } from '../../common/constants/exam-template.enum';
+import {
+  QuestionGroupStatus,
+  QuestionLevel,
+  QuestionPart,
+} from '../../common/constants/question-bank.enum';
+import { UserStatus } from '../../common/constants/user.enum';
 import { DB_ENTITIES_PATH, getDatabaseConfig } from '../../config/database.config';
-import { QuestionPart } from '../../common/constants/question-bank.enum';
-import { TemplateMode, TemplateStatus, TemplateItemMode } from '../../common/constants/exam-template.enum';
-import { QuestionGroup } from '../../modules/admin/question-bank/entities/question-group.entity';
-import { ExamTemplate } from '../../modules/admin/exam-template/entities/exam-template.entity';
-import { ExamTemplateSection } from '../../modules/admin/exam-template/entities/exam-template-section.entity';
 import { ExamTemplateItem } from '../../modules/admin/exam-template/entities/exam-template-item.entity';
+import { ExamTemplateSection } from '../../modules/admin/exam-template/entities/exam-template-section.entity';
+import { ExamTemplate } from '../../modules/admin/exam-template/entities/exam-template.entity';
+import { QuestionGroup } from '../../modules/admin/question-bank/entities/question-group.entity';
+import { Tag } from '../../modules/admin/question-bank/entities/tag.entity';
+import { Role } from '../../modules/admin/rbac/entities/role.entity';
+import { UserRoleAssignment } from '../../modules/admin/rbac/entities/user-role.entity';
+import { User } from '../../modules/security/entities/user.entity';
 import { buildP5Items, buildP6Passages, buildP7Passages } from './toeic-reading-p567-content';
 import {
   ensureReadingSeedTags,
@@ -30,14 +39,195 @@ import {
   resolveSeedUserId,
   saveReadingQuestionGroup,
 } from './toeic-reading-seed-shared';
+import { Question } from '../../modules/admin/question-bank/entities/question.entity';
+import { QuestionOption } from '../../modules/admin/question-bank/entities/question-option.entity';
+import { QuestionGroupTag } from '../../modules/admin/question-bank/entities/question-group-tag.entity';
+import { optionsWithKey, type McqDef } from './toeic-reading-p567-content';
 
 dotenv.config({ path: path.join(__dirname, '../../../.env') });
 
+const LEVELS = [
+  QuestionLevel.EASY,
+  QuestionLevel.MEDIUM,
+  QuestionLevel.HARD,
+  QuestionLevel.EXPERT,
+];
+
+function levelAt(i: number): QuestionLevel {
+  return LEVELS[i % LEVELS.length];
+}
+
+async function resolveUserId(ds: DataSource): Promise<string> {
+  const email = process.env.SEED_USER_EMAIL?.trim();
+  if (email) {
+    const user = await ds.getRepository(User).findOne({ where: { email } });
+    if (!user) {
+      throw new Error(`Không tìm thấy user với email: ${email}`);
+    }
+    console.log(`Seed: dùng SEED_USER_EMAIL=${email}`);
+    return user.id;
+  }
+
+  const admin = await ds
+    .getRepository(User)
+    .createQueryBuilder('u')
+    .innerJoin(UserRoleAssignment, 'ur', 'ur.userId = u.id')
+    .innerJoin(Role, 'r', 'r.id = ur.roleId')
+    .where('r.code IN (:...codes)', { codes: ['superadmin', 'admin'] })
+    .andWhere('u.status = :st', { st: UserStatus.ACTIVE })
+    .orderBy('u.createdAt', 'ASC')
+    .select(['u.id', 'u.email'])
+    .getOne();
+
+  if (admin) {
+    console.log(
+      `Seed: không có SEED_USER_EMAIL — tự chọn admin đầu tiên: ${admin.email}`,
+    );
+    return admin.id;
+  }
+
+  const fallback = await ds.getRepository(User).find({
+    where: { status: UserStatus.ACTIVE },
+    order: { createdAt: 'ASC' },
+    take: 1,
+  });
+  const u = fallback[0];
+  if (u) {
+    console.warn(
+      `Seed: không có admin/superadmin — dùng user active đầu tiên: ${u.email}`,
+    );
+    return u.id;
+  }
+
+  throw new Error(
+    'Không tìm thấy user nào để gán created_by. Tạo ít nhất một user trong DB hoặc đặt SEED_USER_EMAIL trong .env.',
+  );
+}
+
+async function ensureTags(
+  ds: DataSource,
+  userId: string,
+): Promise<Record<string, Tag>> {
+  const defs = [
+    {
+      code: 'grammar:word_form',
+      label: 'Word form / grammar',
+      category: 'grammar',
+    },
+    { code: 'grammar:preposition', label: 'Prepositions', category: 'grammar' },
+    { code: 'reading:detail', label: 'Reading detail', category: 'reading' },
+    { code: 'reading:inference', label: 'Inference', category: 'reading' },
+    {
+      code: 'vocab:general',
+      label: 'General vocabulary',
+      category: 'vocabulary',
+    },
+  ];
+  const out: Record<string, Tag> = {};
+  const repo = ds.getRepository(Tag);
+  for (const d of defs) {
+    let t = await repo.findOne({ where: { code: d.code } });
+    if (!t) {
+      t = repo.create({
+        code: d.code,
+        label: d.label,
+        category: d.category,
+        description: 'Auto-created by TOEIC P5–P7 seed',
+        createdById: userId,
+      });
+      await repo.save(t);
+    }
+    out[d.code] = t;
+  }
+  return out;
+}
+
+async function saveGroupWithQuestions(
+  ds: DataSource,
+  params: {
+    userId: string;
+    code: string;
+    title: string;
+    part: QuestionPart;
+    level: QuestionLevel;
+    stem: string | null;
+    tags: Tag[];
+    questions: McqDef[];
+  },
+): Promise<QuestionGroup> {
+  const gRepo = ds.getRepository(QuestionGroup);
+  const qRepo = ds.getRepository(Question);
+  const oRepo = ds.getRepository(QuestionOption);
+  const tRepo = ds.getRepository(QuestionGroupTag);
+
+  const group = gRepo.create({
+    code: params.code,
+    title: params.title,
+    part: params.part,
+    level: params.level,
+    status: QuestionGroupStatus.PUBLISHED,
+    stem: params.stem,
+    explanation: null,
+    sourceType: 'seed',
+    sourceRef: 'run-seed-toeic-reading',
+    publishedAt: new Date(),
+    deletedAt: null,
+    metadata: { seed: 'toeic-reading-p567' },
+    createdById: params.userId,
+  });
+  await gRepo.save(group);
+
+  for (const tag of params.tags) {
+    await tRepo.save(
+      tRepo.create({
+        questionGroupId: group.id,
+        tagId: tag.id,
+        createdById: params.userId,
+      }),
+    );
+  }
+
+  let qn = 1;
+  for (const mcq of params.questions) {
+    const q = qRepo.create({
+      questionGroupId: group.id,
+      questionNo: qn++,
+      prompt: mcq.prompt,
+      answerKey: mcq.answerKey,
+      rationale: mcq.rationale ?? null,
+      timeLimitSec: null,
+      scoreWeight: '1',
+      metadata: {},
+      createdById: params.userId,
+    });
+    await qRepo.save(q);
+
+    const opts = optionsWithKey(mcq.answerKey, mcq.options);
+    let so = 0;
+    for (const op of opts) {
+      await oRepo.save(
+        oRepo.create({
+          questionId: q.id,
+          optionKey: op.key,
+          content: op.content,
+          isCorrect: op.isCorrect,
+          sortOrder: so++,
+          createdById: params.userId,
+        }),
+      );
+    }
+  }
+
+  return group;
+}
 const MAIN_SEED_SOURCE_REF = 'run-seed-toeic-reading';
 const MAIN_SEED_META = { seed: 'toeic-reading-p567' };
 
 async function main() {
-  const suffix = (process.env.SEED_CODE_SUFFIX ?? 'demo').replace(/[^a-zA-Z0-9_-]/g, '');
+  const suffix = (process.env.SEED_CODE_SUFFIX ?? 'demo').replace(
+    /[^a-zA-Z0-9_-]/g,
+    '',
+  );
   const db = getDatabaseConfig();
   if (!db.password || typeof db.password !== 'string') {
     throw new Error('DB_PASSWORD không hợp lệ — kiểm tra .env');
@@ -207,7 +397,10 @@ async function main() {
 
   const itemRepo = dataSource.getRepository(ExamTemplateItem);
   let order = 1;
-  const addItems = async (section: ExamTemplateSection, groups: QuestionGroup[]) => {
+  const addItems = async (
+    section: ExamTemplateSection,
+    groups: QuestionGroup[],
+  ) => {
     for (const g of groups) {
       await itemRepo.save(
         itemRepo.create({
@@ -231,7 +424,9 @@ async function main() {
 
   console.log('--- Seed hoàn tất ---');
   console.log(`User: ${process.env.SEED_USER_EMAIL}`);
-  console.log(`Question groups: ${totalGroups} (P5=${p5Groups.length}, P6=${p6Groups.length}, P7=${p7Groups.length})`);
+  console.log(
+    `Question groups: ${totalGroups} (P5=${p5Groups.length}, P6=${p6Groups.length}, P7=${p7Groups.length})`,
+  );
   console.log(`Total questions: ${totalQuestions}`);
   console.log(`Exam template: code=${examCode}, id=${exam.id}, status=draft`);
   console.log('Mở Admin → Đề thi để kiểm tra / xuất bản sau khi validate.');

@@ -17,6 +17,7 @@ import { ExpandToeicSpeakingTaskTypeEnum1761860000002 } from './migrations/17618
 import { CreateToeicWritingSetTables1761860000003 } from './migrations/1761860000003-CreateToeicWritingSetTables';
 import { AddSkillScopeToQuestionGroups1761860000004 } from './migrations/1761860000004-AddSkillScopeToQuestionGroups';
 import { ReclassifyQuestionGroupsSkillScope1761860000005 } from './migrations/1761860000005-ReclassifyQuestionGroupsSkillScope';
+import { CreateProctoringViolations1761303000002 } from './migrations/1761303000002-CreateProctoringViolations';
 dotenv.config();
 
 const dbConfig = getDatabaseConfig();
@@ -47,6 +48,8 @@ const dataSource = new DataSource({
     // CreateToeicWritingSetTables1761860000003,
     // AddSkillScopeToQuestionGroups1761860000004,
     ReclassifyQuestionGroupsSkillScope1761860000005,
+    FixOfficialExamRegistrationsBaseEntityColumns1761303000001,
+    CreateProctoringViolations1761303000002,
   ],
   migrationsTableName: 'migrations',  
 });

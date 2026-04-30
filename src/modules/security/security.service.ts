@@ -190,7 +190,12 @@ export class SecurityService {
       await manager.save(refreshToken);
 
       const accessContext = this.buildAccessContext(user);
-      const tokens = await this.generateTokenPair(user, accessContext, meta, manager);
+      const tokens = await this.generateTokenPair(
+        user,
+        accessContext,
+        meta,
+        manager,
+      );
 
       return {
         success: true,
