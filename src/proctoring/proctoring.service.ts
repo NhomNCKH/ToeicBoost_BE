@@ -12,6 +12,8 @@ interface ViolationDetail {
   severity?: number;
   confidence?: number;
   timestamp?: string;
+  snapshotImage?: string;
+  screenshotUrl?: string;
 }
 
 interface ProctoringPayload {
@@ -71,6 +73,7 @@ export class ProctoringService {
           message: violation.message,
           severity: violation.severity ?? 1,
           confidence: violation.confidence ?? 0,
+          screenshotUrl: violation.screenshotUrl ?? violation.snapshotImage ?? null,
           timestamp: violation.timestamp
             ? new Date(violation.timestamp)
             : new Date(),
@@ -151,7 +154,7 @@ export class ProctoringService {
     examIdentifier: string,
     limit: number,
     offset: number,
-  ): Promise<{ data: ProctoringViolation[]; total: number }> {
+  ): Promise<{ data: Array<ProctoringViolation & Record<string, unknown>>; total: number }> {
     const examIds = await this.resolveExamIdentifiers(userId, examIdentifier);
 
     const [data, total] = await this.violationRepository.findAndCount({
@@ -164,14 +167,14 @@ export class ProctoringService {
       take: limit,
     });
 
-    return { data, total };
+    return { data: await this.enrichViolations(data), total };
   }
 
   async listViolationHistoryPaginated(
     limit: number,
     offset: number,
     filters?: { userId?: string; examId?: string },
-  ): Promise<{ data: ProctoringViolation[]; total: number }> {
+  ): Promise<{ data: Array<ProctoringViolation & Record<string, unknown>>; total: number }> {
     const where: FindOptionsWhere<ProctoringViolation> = {};
 
     if (filters?.userId) {
@@ -189,7 +192,53 @@ export class ProctoringService {
       take: limit,
     });
 
-    return { data, total };
+    return { data: await this.enrichViolations(data), total };
+  }
+
+  private async enrichViolations(violations: ProctoringViolation[]) {
+    if (!violations.length) {
+      return [];
+    }
+
+    const attemptIds = Array.from(
+      new Set(
+        violations
+          .flatMap((item) => [item.examAttemptId, item.examId])
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+
+    const attempts = attemptIds.length
+      ? await this.examAttemptRepository.find({
+          where: { id: In(attemptIds) },
+          relations: { user: true, examTemplate: true },
+        })
+      : [];
+
+    const attemptById = new Map(attempts.map((attempt) => [attempt.id, attempt]));
+
+    return violations.map((violation) => {
+      const attempt =
+        (violation.examAttemptId
+          ? attemptById.get(violation.examAttemptId)
+          : undefined) ??
+        attemptById.get(violation.examId);
+      const snapshotTemplate = attempt?.templateSnapshot?.template as
+        | Record<string, unknown>
+        | undefined;
+
+      return {
+        ...violation,
+        userName: attempt?.user?.name ?? null,
+        userEmail: attempt?.user?.email ?? null,
+        examName:
+          attempt?.examTemplate?.name ??
+          (typeof snapshotTemplate?.name === 'string' ? snapshotTemplate.name : null),
+        examCode:
+          attempt?.examTemplate?.code ??
+          (typeof snapshotTemplate?.code === 'string' ? snapshotTemplate.code : null),
+      };
+    });
   }
 
   private normalizePayload(data: unknown): ProctoringPayload | null {
@@ -216,6 +265,8 @@ export class ProctoringService {
         severity: this.readNumber(item.severity),
         confidence: this.readNumber(item.confidence),
         timestamp: this.readString(item.timestamp),
+        snapshotImage: this.readString(item.snapshotImage),
+        screenshotUrl: this.readString(item.screenshotUrl),
       }));
 
     if (!userId || (!examId && !examAttemptId)) {

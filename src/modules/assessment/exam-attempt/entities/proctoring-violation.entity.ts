@@ -32,6 +32,9 @@ export class ProctoringViolation {
   @Column({ type: 'float', default: 0 })
   confidence: number;
 
+  @Column({ name: 'screenshot_url', type: 'text', nullable: true })
+  screenshotUrl: string | null;
+
   @CreateDateColumn({ name: 'timestamp' })
   timestamp: Date;
 }

@@ -28,6 +28,14 @@ export class ViolationDetailDto {
   @IsDateString()
   @IsOptional()
   timestamp?: string;
+
+  @IsString()
+  @IsOptional()
+  snapshotImage?: string;
+
+  @IsString()
+  @IsOptional()
+  screenshotUrl?: string;
 }
 
 export class ReportViolationDto {
