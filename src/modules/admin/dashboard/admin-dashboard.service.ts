@@ -18,6 +18,7 @@ import { ExamTemplate } from '@modules/admin/exam-template/entities/exam-templat
 import { QuestionGroup } from '@modules/admin/question-bank/entities/question-group.entity';
 import { Question } from '@modules/admin/question-bank/entities/question.entity';
 import { ExamAttempt } from '@modules/assessment/exam-attempt/entities/exam-attempt.entity';
+import { OfficialResultsQueryDto } from './dto/official-results-query.dto';
 
 type CountBucket = {
   key: string;
@@ -284,6 +285,135 @@ export class AdminDashboardService {
             }
           : null,
       })),
+    };
+  }
+
+  async getOfficialResults(query: OfficialResultsQueryDto) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const passScoreMin = query.passScoreMin ?? 500;
+    const skip = (page - 1) * limit;
+    const keyword = query.keyword?.trim();
+
+    const baseQuery = this.examAttemptRepository
+      .createQueryBuilder('attempt')
+      .leftJoin('attempt.user', 'user')
+      .leftJoin('attempt.examTemplate', 'template')
+      .where('template.mode = :mode', { mode: TemplateMode.OFFICIAL_EXAM });
+
+    if (query.status) {
+      baseQuery.andWhere('attempt.status = :status', { status: query.status });
+    }
+
+    if (keyword) {
+      baseQuery.andWhere(
+        `(
+          user.name ILIKE :keyword
+          OR user.email ILIKE :keyword
+          OR template.name ILIKE :keyword
+          OR template.code ILIKE :keyword
+        )`,
+        { keyword: `%${keyword}%` },
+      );
+    }
+
+    if (query.eligibleOnly) {
+      baseQuery.andWhere('attempt.totalScore >= :passScoreMin', { passScoreMin });
+    }
+
+    const total = await baseQuery.getCount();
+
+    const rows = await baseQuery
+      .clone()
+      .select('attempt.id', 'id')
+      .addSelect('attempt.status', 'status')
+      .addSelect('attempt.totalScore', 'totalScore')
+      .addSelect('attempt.passThresholdSnapshot', 'passThresholdSnapshot')
+      .addSelect('attempt.startedAt', 'startedAt')
+      .addSelect('attempt.submittedAt', 'submittedAt')
+      .addSelect('user.id', 'userId')
+      .addSelect('user.name', 'userName')
+      .addSelect('user.email', 'userEmail')
+      .addSelect('template.id', 'templateId')
+      .addSelect('template.name', 'templateName')
+      .addSelect('template.code', 'templateCode')
+      .addSelect(
+        `EXISTS (
+          SELECT 1
+          FROM credential_requests cr
+          INNER JOIN credentials c ON c.request_id = cr.id
+          WHERE cr.exam_attempt_id = attempt.id
+        )`,
+        'hasIssuedCredential',
+      )
+      .addSelect(
+        `EXISTS (
+          SELECT 1
+          FROM proctoring_violations pv
+          WHERE pv.exam_attempt_id = attempt.id
+        )`,
+        'hasViolation',
+      )
+      .addSelect(
+        `(
+          SELECT COUNT(1)
+          FROM proctoring_violations pv
+          WHERE pv.exam_attempt_id = attempt.id
+        )`,
+        'violationCount',
+      )
+      .orderBy('attempt.submittedAt', 'DESC', 'NULLS LAST')
+      .addOrderBy('attempt.startedAt', 'DESC')
+      .skip(skip)
+      .take(limit)
+      .getRawMany();
+
+    return {
+      success: true,
+      data: {
+        items: rows.map((row) => {
+          const totalScore = this.roundToOneDecimal(this.toNumber(row.totalScore));
+          const passThresholdSnapshot = this.toNumber(row.passThresholdSnapshot);
+          const passThreshold = passThresholdSnapshot > 0 ? passThresholdSnapshot : passScoreMin;
+
+          return {
+            id: row.id,
+            status: row.status,
+            totalScore,
+            passThreshold,
+            isEligible: totalScore > passScoreMin,
+            startedAt: row.startedAt,
+            submittedAt: row.submittedAt,
+            issueStatus:
+              row.hasIssuedCredential === true || row.hasIssuedCredential === 'true'
+                ? 'issued'
+                : 'not_issued',
+            hasViolation:
+              row.hasViolation === true || row.hasViolation === 'true',
+            violationCount: this.toNumber(row.violationCount),
+            user: row.userId
+              ? {
+                  id: row.userId,
+                  name: row.userName,
+                  email: row.userEmail,
+                }
+              : null,
+            template: row.templateId
+              ? {
+                  id: row.templateId,
+                  name: row.templateName,
+                  code: row.templateCode,
+                  mode: TemplateMode.OFFICIAL_EXAM,
+                }
+              : null,
+          };
+        }),
+        meta: {
+          total,
+          page,
+          limit,
+        },
+      },
     };
   }
 
