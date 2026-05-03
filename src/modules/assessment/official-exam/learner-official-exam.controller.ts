@@ -26,7 +26,14 @@ export class LearnerOfficialExamController {
   @ApiOperation({ summary: 'Dang ky suat thi official exam theo template' })
   register(@Body() dto: RegisterOfficialExamDto, @Req() req: Request) {
     const userId = (req as any).user?.sub as string;
-    return this.officialExamService.register(userId, dto.examTemplateId);
+    return this.officialExamService.register(userId, dto);
+  }
+
+  @Post('registrations/payment-link')
+  @ApiOperation({ summary: 'Tao link thanh toan PayOS cho le phi thi' })
+  createPaymentLink(@Body() dto: RegisterOfficialExamDto, @Req() req: Request) {
+    const userId = (req as any).user?.sub as string;
+    return this.officialExamService.createRegistrationPaymentLink(userId, dto);
   }
 
   @Get('registrations')

@@ -1,7 +1,8 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Permissions } from '@common/decorators/permissions.decorator';
 import { Roles } from '@common/decorators/roles.decorator';
+import { CurrentUser } from '@common/decorators/current-user.decorator';
 import { PermissionCode } from '@common/constants/permission.enum';
 import { UserRole } from '@common/constants/user.enum';
 import { AdminDashboardService } from './admin-dashboard.service';
@@ -26,5 +27,18 @@ export class AdminDashboardController {
   @Permissions(PermissionCode.CREDENTIALS_MANAGE)
   getOfficialResults(@Query() query: OfficialResultsQueryDto) {
     return this.adminDashboardService.getOfficialResults(query);
+  }
+
+  @Post('official-results/:attemptId/issue')
+  @ApiOperation({ summary: 'Cap chung chi cho mot bai thi chinh thuc du dieu kien' })
+  @Permissions(PermissionCode.CREDENTIALS_MANAGE)
+  issueCredential(
+    @Param('attemptId') attemptId: string,
+    @CurrentUser('sub') adminUserId: string,
+  ) {
+    return this.adminDashboardService.issueCertificateForAttempt(
+      attemptId,
+      adminUserId,
+    );
   }
 }
