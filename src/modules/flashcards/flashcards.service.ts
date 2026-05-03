@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { paginate } from '@helpers/pagination.helper';
 import { IsNull } from 'typeorm';
+import { AiTutorService } from '@modules/ai-tutor/ai-tutor.service';
 import { FlashcardDeck } from './entities/flashcard-deck.entity';
 import { Flashcard } from './entities/flashcard.entity';
 import { FlashcardProgress } from './entities/flashcard-progress.entity';
@@ -10,16 +11,39 @@ import { FlashcardReviewLog } from './entities/flashcard-review-log.entity';
 import type {
   CreateFlashcardDeckDto,
   CreateFlashcardDto,
+  LearnerBulkCreateFlashcardsDto,
   LearnerListDeckFlashcardsQueryDto,
   LearnerListDecksQueryDto,
+  LearnerPreviewFlashcardsFromAiDto,
+  LearnerPreviewFlashcardsFromJsonDto,
   LearnerStudyQueueQueryDto,
   LearnerSubmitReviewDto,
   UpdateFlashcardDeckDto,
   UpdateFlashcardDto,
 } from './dto/flashcards.dto';
+import {
+  buildBackFromStructuredMetadata,
+  cleanStringArray,
+  serializeStructuredFlashcardMetadata,
+  StructuredFlashcardMetadata,
+} from './flashcard-metadata.util';
 
 @Injectable()
 export class FlashcardsService {
+  private static readonly allowedSources = new Set([
+    'manual',
+    'json_import',
+    'ai_generated',
+  ]);
+
+  private static readonly allowedContentTypes = new Set([
+    'vocabulary',
+    'phrase',
+    'collocation',
+    'sentence',
+    'mixed',
+  ]);
+
   constructor(
     @InjectRepository(FlashcardDeck)
     private readonly deckRepo: Repository<FlashcardDeck>,
@@ -29,7 +53,195 @@ export class FlashcardsService {
     private readonly progressRepo: Repository<FlashcardProgress>,
     @InjectRepository(FlashcardReviewLog)
     private readonly logRepo: Repository<FlashcardReviewLog>,
+    private readonly aiTutorService: AiTutorService,
   ) {}
+
+  private toCleanText(value: unknown, maxLength: number) {
+    const text = typeof value === 'string' ? value.trim() : '';
+    return text ? text.slice(0, maxLength) : '';
+  }
+
+  private pickText(maxLength: number, ...values: unknown[]) {
+    for (const value of values) {
+      const cleaned = this.toCleanText(value, maxLength);
+      if (cleaned) return cleaned;
+    }
+    return '';
+  }
+
+  private toNormalizedTags(...values: unknown[]) {
+    const merged = values.flatMap((value) => {
+      if (typeof value === 'string') {
+        return value
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean);
+      }
+      return cleanStringArray(value, 20, 80);
+    });
+
+    return Array.from(
+      new Set(
+        merged
+          .map((tag) => this.toCleanText(tag, 80).toLowerCase())
+          .filter(Boolean),
+      ),
+    ).slice(0, 20);
+  }
+
+  private toAllowedSource(
+    value: unknown,
+    fallbackSource: 'manual' | 'json_import' | 'ai_generated',
+  ) {
+    const normalized = this.toCleanText(value, 30).toLowerCase();
+    return FlashcardsService.allowedSources.has(normalized)
+      ? (normalized as 'manual' | 'json_import' | 'ai_generated')
+      : fallbackSource;
+  }
+
+  private toAllowedContentType(value: unknown) {
+    const normalized = this.toCleanText(value, 50).toLowerCase();
+    return FlashcardsService.allowedContentTypes.has(normalized) ? normalized : undefined;
+  }
+
+  private toStructuredMetadata(
+    item: Record<string, unknown>,
+    fallbackSource: 'manual' | 'json_import' | 'ai_generated',
+  ): StructuredFlashcardMetadata | null {
+    const rawMetadata =
+      item.metadata && typeof item.metadata === 'object'
+        ? (item.metadata as Record<string, unknown>)
+        : {};
+
+    const expression = this.pickText(
+      2000,
+      rawMetadata.expression,
+      item.expression,
+      item.word,
+      item.term,
+      item.front,
+    );
+
+    if (!expression) return null;
+
+    const tags = this.toNormalizedTags(rawMetadata.tags, item.tags);
+
+    return {
+      version: 1,
+      expression,
+      partOfSpeech: this.pickText(
+        100,
+        rawMetadata.partOfSpeech,
+        item.partOfSpeech,
+        item.wordType,
+      ),
+      pronunciation: this.pickText(
+        200,
+        rawMetadata.pronunciation,
+        item.pronunciation,
+        item.ipa,
+      ),
+      meaningVi: this.pickText(
+        5000,
+        rawMetadata.meaningVi,
+        item.meaningVi,
+        item.translation,
+        item.meaning,
+      ),
+      meaningEn: this.pickText(5000, rawMetadata.meaningEn, item.meaningEn),
+      phrasalVerbs: cleanStringArray(
+        rawMetadata.phrasalVerbs ?? item.phrasalVerbs,
+        10,
+        120,
+      ),
+      synonyms: cleanStringArray(rawMetadata.synonyms ?? item.synonyms, 12, 120),
+      antonyms: cleanStringArray(rawMetadata.antonyms ?? item.antonyms, 12, 120),
+      exampleEn: this.pickText(
+        5000,
+        rawMetadata.exampleEn,
+        item.exampleEn,
+        item.exampleSentence,
+        item.example,
+      ),
+      exampleVi: this.pickText(5000, rawMetadata.exampleVi, item.exampleVi),
+      note: this.pickText(5000, rawMetadata.note, item.note),
+      source: this.toAllowedSource(rawMetadata.source, fallbackSource),
+      level: this.pickText(20, rawMetadata.level, item.level),
+      contentType: this.toAllowedContentType(
+        rawMetadata.contentType ?? item.contentType,
+      ),
+      tags,
+    };
+  }
+
+  private normalizePreviewItem(
+    raw: unknown,
+    fallbackSource: 'manual' | 'json_import' | 'ai_generated',
+  ) {
+    const item =
+      raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : ({} as Record<string, unknown>);
+
+    const metadata = this.toStructuredMetadata(item, fallbackSource);
+    const front = this.pickText(2000, item.front, metadata?.expression, item.word, item.term);
+    const back = this.pickText(
+      5000,
+      item.back,
+      buildBackFromStructuredMetadata(metadata),
+      item.meaning,
+      item.translation,
+      item.meaningVi,
+      item.meaningEn,
+    );
+
+    if (!front || !back) {
+      throw new BadRequestException('Mỗi flashcard phải có front và back hợp lệ');
+    }
+
+    const tags = this.toNormalizedTags(item.tags, metadata?.tags);
+    const legacyNote = this.toCleanText(item.note, 5000);
+
+    return {
+      front,
+      back,
+      tags,
+      metadata,
+      note: metadata ? undefined : legacyNote || undefined,
+    };
+  }
+
+  private toPreviewResponseItem(
+    item: ReturnType<FlashcardsService['normalizePreviewItem']>,
+  ) {
+    const metadata = item.metadata
+      ? (() => {
+          const { version: _version, ...rest } = item.metadata;
+          return rest;
+        })()
+      : undefined;
+
+    return {
+      ...item,
+      metadata,
+    };
+  }
+
+  private toCardEntityPayload(
+    deckId: string,
+    item: ReturnType<FlashcardsService['normalizePreviewItem']>,
+    userId: string,
+  ) {
+    const note =
+      serializeStructuredFlashcardMetadata(item.metadata ?? null) ?? item.note ?? null;
+
+    return this.cardRepo.create({
+      deckId,
+      front: item.front.trim(),
+      back: item.back.trim(),
+      note,
+      tags: item.tags.length ? item.tags : null,
+      createdById: userId,
+    });
+  }
 
   async listDecks(query: LearnerListDecksQueryDto, userId: string) {
     const qb = this.deckRepo
@@ -130,6 +342,128 @@ export class FlashcardsService {
       createdById: userId,
     });
     return this.cardRepo.save(card);
+  }
+
+  previewFromJson(dto: LearnerPreviewFlashcardsFromJsonDto) {
+    let parsed: unknown;
+
+    try {
+      parsed = JSON.parse(dto.rawJson);
+    } catch {
+      throw new BadRequestException('JSON không hợp lệ');
+    }
+
+    const wrapper =
+      parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null;
+
+    const rawItems = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(wrapper?.cards)
+        ? wrapper.cards
+        : Array.isArray(wrapper?.items)
+          ? wrapper.items
+          : null;
+
+    if (!rawItems) {
+      throw new BadRequestException(
+        'JSON phải là mảng flashcards hoặc object có trường cards/items',
+      );
+    }
+
+    if (!rawItems.length) {
+      throw new BadRequestException('Danh sách flashcard rỗng');
+    }
+
+    if (rawItems.length > 100) {
+      throw new BadRequestException('Tối đa 100 flashcard cho mỗi lần preview');
+    }
+
+    const items = rawItems.map((item, index) => {
+      try {
+        return this.toPreviewResponseItem(
+          this.normalizePreviewItem(item, 'json_import'),
+        );
+      } catch (error) {
+        throw new BadRequestException(
+          `Flashcard ở vị trí ${index + 1} không hợp lệ: ${(error as Error).message}`,
+        );
+      }
+    });
+
+    return {
+      title: this.toCleanText(wrapper?.title, 200) || 'JSON Import Preview',
+      items,
+      warnings: [],
+      source: 'json_import' as const,
+    };
+  }
+
+  async previewFromAi(dto: LearnerPreviewFlashcardsFromAiDto) {
+    const generated = await this.aiTutorService.generateFlashcardSet({
+      topic: dto.topic,
+      language: dto.language,
+      level: dto.level,
+      cardCount: dto.cardCount,
+      contentType: dto.contentType,
+      requirements: dto.requirements,
+    });
+
+    const items = generated.result.cards.map((item, index) => {
+      try {
+        return this.toPreviewResponseItem(
+          this.normalizePreviewItem(item, 'ai_generated'),
+        );
+      } catch (error) {
+        throw new BadRequestException(
+          `AI trả về flashcard không hợp lệ ở vị trí ${index + 1}: ${(error as Error).message}`,
+        );
+      }
+    });
+
+    if (!items.length) {
+      throw new BadRequestException('AI không tạo được flashcard hợp lệ để xem trước');
+    }
+
+    return {
+      title: generated.result.title,
+      items,
+      warnings: generated.result.warnings,
+      source: 'ai_generated' as const,
+      model: generated.model,
+      formatVersion: generated.formatVersion,
+    };
+  }
+
+  async bulkCreateCards(
+    deckId: string,
+    dto: LearnerBulkCreateFlashcardsDto,
+    userId: string,
+  ) {
+    await this.getDeck(deckId, userId);
+
+    if (!dto.items?.length) {
+      throw new BadRequestException('Danh sách flashcard rỗng');
+    }
+
+    const normalizedItems = dto.items.map((item, index) => {
+      try {
+        return this.normalizePreviewItem(item, 'manual');
+      } catch (error) {
+        throw new BadRequestException(
+          `Flashcard ở vị trí ${index + 1} không hợp lệ khi lưu: ${(error as Error).message}`,
+        );
+      }
+    });
+
+    const entities = normalizedItems.map((item) => this.toCardEntityPayload(deckId, item, userId));
+    await this.cardRepo.save(entities);
+
+    return {
+      inserted: entities.length,
+      deckId,
+    };
   }
 
   private async getCardOwned(cardId: string, userId: string) {
@@ -307,4 +641,3 @@ export class FlashcardsService {
     };
   }
 }
-

@@ -16,8 +16,11 @@ import { IJwtPayload } from '@common/interfaces/jwt-payload.interface';
 import {
   CreateFlashcardDeckDto,
   CreateFlashcardDto,
+  LearnerBulkCreateFlashcardsDto,
   LearnerListDeckFlashcardsQueryDto,
   LearnerListDecksQueryDto,
+  LearnerPreviewFlashcardsFromAiDto,
+  LearnerPreviewFlashcardsFromJsonDto,
   LearnerStudyQueueQueryDto,
   LearnerSubmitReviewDto,
   UpdateFlashcardDeckDto,
@@ -85,6 +88,16 @@ export class FlashcardsController {
   ) {
     return this.flashcardsService.createCard(id, dto, userInfo.sub);
   }
+
+  @Post(':id/flashcards/bulk')
+  @ApiOperation({ summary: 'Bulk create flashcards in deck after preview confirmation' })
+  bulkCreateCards(
+    @Param('id') id: string,
+    @Body() dto: LearnerBulkCreateFlashcardsDto,
+    @UserInfo() userInfo: IJwtPayload,
+  ) {
+    return this.flashcardsService.bulkCreateCards(id, dto, userInfo.sub);
+  }
 }
 
 @ApiTags('Learner Flashcards')
@@ -110,6 +123,18 @@ export class LearnerFlashcardsController {
     return this.flashcardsService.deleteCard(id, userInfo.sub);
   }
 
+  @Post('preview-from-json')
+  @ApiOperation({ summary: 'Preview flashcards from pasted JSON without saving to DB' })
+  previewFromJson(@Body() dto: LearnerPreviewFlashcardsFromJsonDto) {
+    return this.flashcardsService.previewFromJson(dto);
+  }
+
+  @Post('preview-from-ai')
+  @ApiOperation({ summary: 'Generate, validate, and preview flashcards from AI without saving to DB' })
+  previewFromAi(@Body() dto: LearnerPreviewFlashcardsFromAiDto) {
+    return this.flashcardsService.previewFromAi(dto);
+  }
+
   @Get('study/queue')
   @ApiOperation({ summary: 'Get study queue (due + new)' })
   getQueue(@Query() query: LearnerStudyQueueQueryDto, @UserInfo() userInfo: IJwtPayload) {
@@ -122,4 +147,3 @@ export class LearnerFlashcardsController {
     return this.flashcardsService.submitReview(dto, userInfo.sub);
   }
 }
-
