@@ -7,12 +7,19 @@ import { ProctoringGateway } from './proctoring.gateway';
 import { ViolationConsumer } from './violation.consumer';
 import { ProctoringViolation } from '@modules/assessment/exam-attempt/entities/proctoring-violation.entity';
 import { ExamAttempt } from '@modules/assessment/exam-attempt/entities/exam-attempt.entity';
+import { OfficialExamRegistration } from '@modules/assessment/official-exam/entities/official-exam-registration.entity';
+import { S3StorageModule } from '@modules/s3/s3-storage.module';
 import { RedisModule } from '../redis/redis.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ProctoringViolation, ExamAttempt]),
+    TypeOrmModule.forFeature([
+      ProctoringViolation,
+      ExamAttempt,
+      OfficialExamRegistration,
+    ]),
     RedisModule,
+    S3StorageModule,
   ],
   controllers: [ProctoringController],
   providers: [ProctoringService, ProctoringGateway, ViolationConsumer],

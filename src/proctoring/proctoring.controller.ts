@@ -5,19 +5,25 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Post,
   Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { ApiOperation } from '@nestjs/swagger';
 import { Request } from 'express';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { IJwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { GetViolationsQueryDto } from './dto/get-violations-query.dto';
+import { LogProctoringEventDto } from './dto/log-proctoring-event.dto';
 import { ReportViolationDto } from './dto/report-violation.dto';
+import { VerifyFaceIdentityDto } from './dto/verify-face-identity.dto';
 import { ProctoringService } from './proctoring.service';
 
 interface RequestWithUser extends Request {
@@ -115,6 +121,50 @@ export class ProctoringController {
       success: true,
       message: 'Violation reported successfully',
     };
+  }
+
+  @Post('face-verification')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Verify webcam face against the official exam registration image',
+  })
+  async verifyFaceIdentity(
+    @CurrentUser('sub') userId: string,
+    @Body() dto: VerifyFaceIdentityDto,
+  ): Promise<unknown> {
+    return this.proctoringService.verifyFaceIdentity(userId, dto);
+  }
+
+  @Post('debug-log')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({
+    summary: 'Record a proctoring debug event for troubleshooting',
+  })
+  async logDebugEvent(
+    @CurrentUser('sub') userId: string,
+    @Body() dto: LogProctoringEventDto,
+  ) {
+    await this.proctoringService.logDebugEvent(userId, dto);
+    return { logged: true };
+  }
+
+  @Get('debug-logs/:userId/:examId')
+  @Roles('admin', 'proctor')
+  @ApiOperation({
+    summary: 'Read recent proctoring debug events for an exam attempt',
+  })
+  async getDebugLogs(
+    @Param('userId') userId: string,
+    @Param('examId') examIdentifier: string,
+    @Query('limit') limitRaw?: string,
+  ): Promise<unknown> {
+    if (!userId || !examIdentifier) {
+      throw new BadRequestException('userId and examId are required');
+    }
+
+    const limit = Math.min(Math.max(Number(limitRaw) || 100, 1), 500);
+    return this.proctoringService.getDebugLogs(userId, examIdentifier, limit);
   }
 
   private canAccessUserProctoring(user: IJwtPayload, targetUserId: string): boolean {

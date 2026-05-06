@@ -59,6 +59,39 @@ export class S3StorageService {
     return { objectUrl: this.buildPublicUrl(objectKey) };
   }
 
+  async getObjectBuffer(params: { objectKey: string }): Promise<Buffer> {
+    const response = await this.s3Client.send(
+      new GetObjectCommand({
+        Bucket: this.bucketName,
+        Key: params.objectKey,
+      }),
+    );
+
+    if (!response.Body) {
+      return Buffer.alloc(0);
+    }
+
+    const body = response.Body as unknown;
+    const transformable = body as {
+      transformToByteArray?: () => Promise<Uint8Array>;
+    };
+
+    if (typeof transformable.transformToByteArray === 'function') {
+      return Buffer.from(await transformable.transformToByteArray());
+    }
+
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      const stream = body as NodeJS.ReadableStream;
+
+      stream.on('data', (chunk: Buffer | string) => {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      });
+      stream.on('error', reject);
+      stream.on('end', () => resolve(Buffer.concat(chunks)));
+    });
+  }
+
   async getSignedPutUrl(params: {
     objectKey: string;
     contentType: string;
