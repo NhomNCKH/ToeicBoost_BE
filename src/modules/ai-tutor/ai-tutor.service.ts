@@ -62,6 +62,36 @@ type VocabularyLookupResult = {
   note: string;
 };
 
+type GeneratedFlashcardMetadata = {
+  expression: string;
+  partOfSpeech: string;
+  pronunciation: string;
+  meaningVi: string;
+  meaningEn: string;
+  exampleEn: string;
+  exampleVi: string;
+  synonyms: string[];
+  antonyms: string[];
+  note: string;
+  source: 'ai_generated';
+  level: string;
+  contentType: string;
+  tags: string[];
+};
+
+type GeneratedFlashcardItem = {
+  front: string;
+  back: string;
+  tags: string[];
+  metadata: GeneratedFlashcardMetadata;
+};
+
+type GeneratedFlashcardSetResult = {
+  title: string;
+  cards: GeneratedFlashcardItem[];
+  warnings: string[];
+};
+
 @Injectable()
 export class AiTutorService {
   private readonly logger = new Logger(AiTutorService.name);
@@ -369,6 +399,79 @@ export class AiTutorService {
     };
   }
 
+  private normalizeGeneratedFlashcardItem(
+    raw: unknown,
+    defaults: {
+      level: string;
+      contentType: string;
+      tags: string[];
+      language: string;
+    },
+  ): GeneratedFlashcardItem | null {
+    const item = raw as Record<string, unknown>;
+    const metadataRaw = (item?.metadata ?? {}) as Record<string, unknown>;
+
+    const expression = this.toShortText(
+      metadataRaw.expression ?? item?.expression ?? item?.word ?? item?.term,
+    );
+    const meaningVi = this.toShortText(
+      metadataRaw.meaningVi ?? item?.meaningVi ?? item?.meaning ?? item?.translation,
+    );
+    const meaningEn = this.toShortText(metadataRaw.meaningEn ?? item?.meaningEn);
+    const exampleEn = this.toShortText(
+      metadataRaw.exampleEn ?? item?.exampleEn ?? item?.exampleSentence ?? item?.example,
+    );
+    const exampleVi = this.toShortText(metadataRaw.exampleVi ?? item?.exampleVi);
+
+    const fallbackFront =
+      defaults.language === 'vi-en' ? meaningVi || this.toShortText(item?.front) : expression;
+    const fallbackBack =
+      defaults.language === 'vi-en' ? expression || meaningEn : meaningVi || meaningEn;
+
+    const front = this.toShortText(item?.front, fallbackFront);
+    const back = this.toShortText(item?.back, fallbackBack);
+
+    if (!front || !back) return null;
+
+    const mergedTags = Array.from(
+      new Set(
+        [
+          ...defaults.tags,
+          ...this.toLines(metadataRaw.tags, 20),
+          ...this.toLines(item?.tags, 20),
+        ]
+          .map((tag) => tag.trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    ).slice(0, 20);
+
+    return {
+      front,
+      back,
+      tags: mergedTags,
+      metadata: {
+        expression: this.toShortText(metadataRaw.expression, expression || front),
+        partOfSpeech: this.toShortText(
+          metadataRaw.partOfSpeech ?? item?.partOfSpeech ?? item?.wordType,
+        ),
+        pronunciation: this.toShortText(
+          metadataRaw.pronunciation ?? item?.pronunciation ?? item?.ipa,
+        ),
+        meaningVi,
+        meaningEn,
+        exampleEn,
+        exampleVi,
+        synonyms: this.toLines(metadataRaw.synonyms ?? item?.synonyms, 12),
+        antonyms: this.toLines(metadataRaw.antonyms ?? item?.antonyms, 12),
+        note: this.toShortText(metadataRaw.note ?? item?.note),
+        source: 'ai_generated',
+        level: defaults.level,
+        contentType: defaults.contentType,
+        tags: mergedTags,
+      },
+    };
+  }
+
   explain(dto: ExplainAnswerDto) {
     const language = (dto.language ?? 'vi').toLowerCase();
     const langHint =
@@ -515,5 +618,118 @@ export class AiTutorService {
       };
     });
   }
-}
 
+  generateFlashcardSet(input: {
+    topic: string;
+    language: 'en-vi' | 'vi-en' | 'en-en';
+    level?: string;
+    cardCount: number;
+    contentType: 'vocabulary' | 'phrase' | 'collocation' | 'sentence' | 'mixed';
+    requirements?: string;
+  }) {
+    const level = (input.level ?? '').trim();
+    const topic = input.topic.trim();
+    const requirements = (input.requirements ?? '').trim();
+
+    const languageInstruction =
+      input.language === 'en-vi'
+        ? 'Set front in English and back in Vietnamese.'
+        : input.language === 'vi-en'
+          ? 'Set front in Vietnamese and back in English.'
+          : 'Set both front and back in English, with back explaining meaning in concise learner-friendly English.';
+
+    const contentTypeInstruction =
+      input.contentType === 'vocabulary'
+        ? 'Focus on single words.'
+        : input.contentType === 'phrase'
+          ? 'Focus on practical multi-word phrases.'
+          : input.contentType === 'collocation'
+            ? 'Focus on natural collocations used in work or TOEIC contexts.'
+            : input.contentType === 'sentence'
+              ? 'Focus on useful complete example sentences.'
+              : 'Mix words, phrases, and collocations in a balanced way.';
+
+    const defaultTags = Array.from(
+      new Set(
+        [
+          'ai-generated',
+          input.contentType,
+          level.toLowerCase(),
+          ...topic
+            .toLowerCase()
+            .split(/[^a-z0-9]+/i)
+            .map((part) => part.trim())
+            .filter((part) => part.length >= 2)
+            .slice(0, 4),
+        ].filter(Boolean),
+      ),
+    );
+
+    const system = [
+      'You are generating study flashcards for an English learning app.',
+      'Return JSON only. Do not use markdown. Do not add explanations outside JSON.',
+      'Return exactly one JSON object with schema:',
+      '{"title":string,"cards":[{"front":string,"back":string,"tags":string[],"metadata":{"expression":string,"partOfSpeech":string,"pronunciation":string,"meaningVi":string,"meaningEn":string,"exampleEn":string,"exampleVi":string,"synonyms":string[],"antonyms":string[],"note":string,"source":"ai_generated","level":string,"contentType":string,"tags":string[]}}]}',
+      'All cards must be concise, correct, non-duplicate, and useful for learners.',
+      'If a field is unknown, return empty string or empty array instead of omitting the schema shape.',
+      'Keep examples short and natural.',
+      'Do not generate offensive or unsafe content.',
+      languageInstruction,
+      contentTypeInstruction,
+    ].join('\n');
+
+    const user = [
+      `Topic: ${topic}`,
+      level ? `Level: ${level}` : '',
+      `Card count: ${input.cardCount}`,
+      `Content type: ${input.contentType}`,
+      `Language direction: ${input.language}`,
+      requirements ? `Detailed requirements: ${requirements}` : '',
+      `Default tags: ${defaultTags.join(', ')}`,
+      '',
+      'Ensure metadata.source is "ai_generated".',
+      'Prefer TOEIC/business-friendly content when the topic fits.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    return this.generateText(system, user).then((res) => {
+      const parsed = this.parseJsonFromAiText(res.text);
+      const rawCards = Array.isArray(parsed?.cards) ? parsed.cards : [];
+      const cards = rawCards
+        .map((card) =>
+          this.normalizeGeneratedFlashcardItem(card, {
+            level,
+            contentType: input.contentType,
+            tags: defaultTags,
+            language: input.language,
+          }),
+        )
+        .filter((card): card is GeneratedFlashcardItem => Boolean(card))
+        .slice(0, input.cardCount);
+
+      const warnings: string[] = [];
+      if (rawCards.length === 0) {
+        warnings.push('AI không trả về danh sách thẻ hợp lệ.');
+      } else if (cards.length !== input.cardCount) {
+        warnings.push(
+          `AI trả về ${cards.length}/${input.cardCount} thẻ hợp lệ sau khi chuẩn hóa.`,
+        );
+      }
+
+      const title = this.toShortText(parsed?.title, topic || 'AI Flashcards');
+      const result: GeneratedFlashcardSetResult = {
+        title,
+        cards,
+        warnings,
+      };
+
+      return {
+        model: res.model,
+        text: res.text,
+        result,
+        formatVersion: 'flashcards-v1',
+      };
+    });
+  }
+}
