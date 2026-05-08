@@ -3,6 +3,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   HttpCode,
@@ -95,6 +96,20 @@ export class ProctoringController {
       limit: queryDto.limit,
       offset: queryDto.offset,
       data: result.data,
+    };
+  }
+
+  @Delete('violations/:id')
+  @Roles('admin', 'proctor')
+  async deleteViolation(@Param('id') id: string) {
+    if (!id) {
+      throw new BadRequestException('violation id is required');
+    }
+
+    await this.proctoringService.deleteViolation(id);
+    return {
+      success: true,
+      message: 'Violation deleted successfully',
     };
   }
 
