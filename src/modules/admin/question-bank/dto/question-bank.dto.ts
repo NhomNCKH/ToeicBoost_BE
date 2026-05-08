@@ -107,7 +107,8 @@ export class QuestionItemDto {
 
   @ApiProperty({ type: [QuestionOptionDto] })
   @IsArray()
-  @ArrayMinSize(4)
+  @ArrayMinSize(2)
+  @ArrayMaxSize(4)
   @ValidateNested({ each: true })
   @Type(() => QuestionOptionDto)
   options: QuestionOptionDto[];
