@@ -865,6 +865,17 @@ export class AdminQuestionBankService {
     existingId?: string,
     allowPartial = true,
   ) {
+    const targetPart =
+      dto.part ??
+      (dto.questions && existingId
+        ? (
+            await this.questionGroupRepository.findOne({
+              where: { id: existingId, deletedAt: IsNull() },
+              select: { part: true },
+            })
+          )?.part
+        : undefined);
+
     if (!allowPartial || dto.code) {
       if (!dto.code) throw new BadRequestException('Code is required');
       const existing = await this.questionGroupRepository.findOne({
@@ -883,6 +894,10 @@ export class AdminQuestionBankService {
         throw new BadRequestException('At least one question is required');
       }
 
+      if (targetPart) {
+        this.validateQuestionCountByPart(targetPart, dto.questions.length);
+      }
+
       const seenQuestionNos = new Set<number>();
       for (const question of dto.questions) {
         if (seenQuestionNos.has(question.questionNo)) {
@@ -892,9 +907,11 @@ export class AdminQuestionBankService {
         }
         seenQuestionNos.add(question.questionNo);
 
-        if (question.options.length !== 4) {
+        const requiredOptionCount =
+          targetPart === QuestionPart.P2 ? 3 : 4;
+        if (question.options.length !== requiredOptionCount) {
           throw new BadRequestException(
-            `Question ${question.questionNo} must have exactly 4 options`,
+            `Question ${question.questionNo} in part ${targetPart ?? 'unknown'} must have exactly ${requiredOptionCount} options`,
           );
         }
 
@@ -965,6 +982,46 @@ export class AdminQuestionBankService {
     ) {
       throw new BadRequestException(
         `Part ${part} requires audio or transcript asset`,
+      );
+    }
+  }
+
+  private validateQuestionCountByPart(
+    part: QuestionPart,
+    questionCount: number,
+  ) {
+    if (
+      (part === QuestionPart.P1 ||
+        part === QuestionPart.P2 ||
+        part === QuestionPart.P5) &&
+      questionCount !== 1
+    ) {
+      throw new BadRequestException(
+        `Part ${part} must contain exactly 1 question per group`,
+      );
+    }
+
+    if (
+      (part === QuestionPart.P3 || part === QuestionPart.P4) &&
+      questionCount !== 3
+    ) {
+      throw new BadRequestException(
+        `Part ${part} must contain exactly 3 questions per group`,
+      );
+    }
+
+    if (part === QuestionPart.P6 && questionCount !== 4) {
+      throw new BadRequestException(
+        'Part P6 must contain exactly 4 questions per group',
+      );
+    }
+
+    if (
+      part === QuestionPart.P7 &&
+      (questionCount < 2 || questionCount > 5)
+    ) {
+      throw new BadRequestException(
+        'Part P7 must contain from 2 to 5 questions per group',
       );
     }
   }
