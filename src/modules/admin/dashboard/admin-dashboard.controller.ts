@@ -7,6 +7,7 @@ import { PermissionCode } from '@common/constants/permission.enum';
 import { UserRole } from '@common/constants/user.enum';
 import { AdminDashboardService } from './admin-dashboard.service';
 import { OfficialResultsQueryDto } from './dto/official-results-query.dto';
+import { RegistrationsQueryDto } from './dto/registrations-query.dto';
 
 @ApiTags('Admin Dashboard')
 @ApiBearerAuth()
@@ -27,6 +28,15 @@ export class AdminDashboardController {
   @Permissions(PermissionCode.CREDENTIALS_MANAGE)
   getOfficialResults(@Query() query: OfficialResultsQueryDto) {
     return this.adminDashboardService.getOfficialResults(query);
+  }
+
+  @Get('registrations')
+  @ApiOperation({
+    summary: 'Lấy danh sách học viên đã đăng ký thi chính thức',
+  })
+  @Permissions(PermissionCode.CREDENTIALS_MANAGE)
+  listRegistrations(@Query() query: RegistrationsQueryDto) {
+    return this.adminDashboardService.listRegistrations(query);
   }
 
   @Post('official-results/:attemptId/issue')

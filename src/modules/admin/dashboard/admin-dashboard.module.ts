@@ -9,6 +9,7 @@ import { ExamTemplate } from '@modules/admin/exam-template/entities/exam-templat
 import { QuestionGroup } from '@modules/admin/question-bank/entities/question-group.entity';
 import { Question } from '@modules/admin/question-bank/entities/question.entity';
 import { ExamAttempt } from '@modules/assessment/exam-attempt/entities/exam-attempt.entity';
+import { OfficialExamRegistration } from '@modules/assessment/official-exam/entities/official-exam-registration.entity';
 import { DashboardKpiSnapshot } from './entities/dashboard-kpi-snapshot.entity';
 import { QuestionQualitySnapshot } from './entities/question-quality-snapshot.entity';
 import { ExamPerformanceSnapshot } from './entities/exam-performance-snapshot.entity';
@@ -28,6 +29,7 @@ import { AdminDashboardService } from './admin-dashboard.service';
       QuestionGroup,
       Question,
       ExamAttempt,
+      OfficialExamRegistration,
       DashboardKpiSnapshot,
       QuestionQualitySnapshot,
       ExamPerformanceSnapshot,

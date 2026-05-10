@@ -28,7 +28,12 @@ import { ExamTemplate } from '@modules/admin/exam-template/entities/exam-templat
 import { QuestionGroup } from '@modules/admin/question-bank/entities/question-group.entity';
 import { Question } from '@modules/admin/question-bank/entities/question.entity';
 import { ExamAttempt } from '@modules/assessment/exam-attempt/entities/exam-attempt.entity';
+import {
+  OfficialExamRegistration,
+  OfficialExamRegistrationStatus,
+} from '@modules/assessment/official-exam/entities/official-exam-registration.entity';
 import { OfficialResultsQueryDto } from './dto/official-results-query.dto';
+import { RegistrationsQueryDto } from './dto/registrations-query.dto';
 
 type CountBucket = {
   key: string;
@@ -65,6 +70,8 @@ export class AdminDashboardService {
     private readonly questionRepository: Repository<Question>,
     @InjectRepository(ExamAttempt)
     private readonly examAttemptRepository: Repository<ExamAttempt>,
+    @InjectRepository(OfficialExamRegistration)
+    private readonly officialExamRegistrationRepository: Repository<OfficialExamRegistration>,
   ) {}
 
   async getSummary() {
@@ -435,6 +442,101 @@ export class AdminDashboardService {
               : null,
           };
         }),
+        meta: {
+          total,
+          page,
+          limit,
+        },
+      },
+    };
+  }
+
+  async listRegistrations(query: RegistrationsQueryDto) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const skip = (page - 1) * limit;
+    const keyword = query.keyword?.trim();
+
+    const baseQuery = this.officialExamRegistrationRepository
+      .createQueryBuilder('registration')
+      .leftJoin('registration.user', 'user')
+      .leftJoin('registration.examTemplate', 'template');
+
+    if (query.status) {
+      baseQuery.andWhere('registration.status = :status', {
+        status: query.status,
+      });
+    }
+
+    if (query.examTemplateId) {
+      baseQuery.andWhere('registration.examTemplateId = :examTemplateId', {
+        examTemplateId: query.examTemplateId,
+      });
+    }
+
+    if (keyword) {
+      baseQuery.andWhere(
+        `(
+          user.name ILIKE :keyword
+          OR user.email ILIKE :keyword
+          OR template.name ILIKE :keyword
+          OR template.code ILIKE :keyword
+        )`,
+        { keyword: `%${keyword}%` },
+      );
+    }
+
+    const total = await baseQuery.getCount();
+
+    const rows = await baseQuery
+      .clone()
+      .select('registration.id', 'id')
+      .addSelect('registration.status', 'status')
+      .addSelect('registration.examDate', 'examDate')
+      .addSelect('registration.registeredAt', 'registeredAt')
+      .addSelect('registration.confirmationSentAt', 'confirmationSentAt')
+      .addSelect('registration.reminderSentAt', 'reminderSentAt')
+      .addSelect('registration.metadata', 'metadata')
+      .addSelect('user.id', 'userId')
+      .addSelect('user.name', 'userName')
+      .addSelect('user.email', 'userEmail')
+      .addSelect('template.id', 'templateId')
+      .addSelect('template.name', 'templateName')
+      .addSelect('template.code', 'templateCode')
+      .orderBy('registration.registeredAt', 'DESC')
+      .addOrderBy('registration.examDate', 'DESC')
+      .skip(skip)
+      .take(limit)
+      .getRawMany();
+
+    return {
+      success: true,
+      data: {
+        items: rows.map((row) => ({
+          id: row.id,
+          status:
+            row.status ?? OfficialExamRegistrationStatus.REGISTERED,
+          examDate: row.examDate,
+          registeredAt: row.registeredAt,
+          confirmationSentAt: row.confirmationSentAt,
+          reminderSentAt: row.reminderSentAt,
+          metadata:
+            row.metadata && typeof row.metadata === 'object' ? row.metadata : {},
+          user: row.userId
+            ? {
+                id: row.userId,
+                name: row.userName,
+                email: row.userEmail,
+              }
+            : null,
+          template: row.templateId
+            ? {
+                id: row.templateId,
+                name: row.templateName,
+                code: row.templateCode,
+              }
+            : null,
+        })),
         meta: {
           total,
           page,
