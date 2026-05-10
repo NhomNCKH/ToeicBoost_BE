@@ -5,7 +5,10 @@ import {
   ExplainAnswerDto,
   GradeSpeakingDto,
   GradeWritingDto,
+  GenerateTranslationExerciseDto,
   LookupVocabularyDto,
+  ReviewTranslationDto,
+  SuggestTranslationDto,
 } from './dto/ai-tutor.dto';
 
 type AiTextResult = {
@@ -60,6 +63,30 @@ type VocabularyLookupResult = {
     vi: string;
   }>;
   note: string;
+};
+
+type TranslationGlossaryItem = { source: string; target: string; note: string };
+
+type TranslationExerciseResult = {
+  title: string;
+  sourceText: string;
+  sourceLanguage: string;
+  targetLanguage: string;
+  glossary: TranslationGlossaryItem[];
+};
+
+type SuggestTranslationResult = {
+  vocabularyHints: Array<{ word: string; meaning: string }>;
+  structureHints: string[];
+};
+
+type ReviewTranslationResult = {
+  overallScore: number;
+  summary: string;
+  grammarHint: string;
+  vocabularyHint: string;
+  suggestedPattern: string;
+  improvedTranslation: string;
 };
 
 type GeneratedFlashcardMetadata = {
@@ -272,6 +299,23 @@ export class AiTutorService {
     );
   }
 
+  /**
+   * Dịch văn bản thuần (raw) giữa 2 ngôn ngữ.
+   * Dùng nội bộ cho các module khác (vd: Shadowing EN→VI).
+   */
+  translateRaw(input: { sourceText: string; sourceLanguage?: string; targetLanguage?: string }) {
+    const sourceLanguage = this.toShortText(input.sourceLanguage, 'en').toLowerCase();
+    const targetLanguage = this.toShortText(input.targetLanguage, 'vi').toLowerCase();
+    const sourceText = this.toShortText(input.sourceText);
+    const system = [
+      'You are a professional translator.',
+      `Translate from ${sourceLanguage} to ${targetLanguage}.`,
+      'Keep meaning faithful and natural.',
+      'Return ONLY the translated text. No quotes, no markdown, no explanations.',
+    ].join('\n');
+    return this.generateText(system, sourceText);
+  }
+
   private toScore200(value: unknown): number {
     const n = Number(value);
     if (!Number.isFinite(n)) return 0;
@@ -396,6 +440,68 @@ export class AiTutorService {
       antonyms: this.toLines(raw?.antonyms, 8),
       examples,
       note: this.toShortText(raw?.note),
+    };
+  }
+
+  private normalizeTranslationExerciseResult(
+    raw: Record<string, unknown> | null,
+    defaults: { sourceLanguage: string; targetLanguage: string; titleFallback: string },
+  ): TranslationExerciseResult {
+    const glossaryRaw = Array.isArray(raw?.glossary) ? raw?.glossary : [];
+    const glossary = glossaryRaw
+      .map((x) => {
+        const item = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>;
+        const source = this.toShortText(item.source);
+        const target = this.toShortText(item.target);
+        const note = this.toShortText(item.note);
+        if (!source && !target && !note) return null;
+        return { source, target, note };
+      })
+      .filter((x): x is TranslationGlossaryItem => x !== null)
+      .slice(0, 20);
+
+    return {
+      title: this.toShortText(raw?.title, defaults.titleFallback),
+      sourceText: this.toShortText(raw?.sourceText),
+      sourceLanguage: this.toShortText(raw?.sourceLanguage, defaults.sourceLanguage),
+      targetLanguage: this.toShortText(raw?.targetLanguage, defaults.targetLanguage),
+      glossary,
+    };
+  }
+
+  private normalizeSuggestTranslationResult(
+    raw: Record<string, unknown> | null,
+  ): SuggestTranslationResult {
+    const vocabRaw = Array.isArray(raw?.vocabularyHints) ? raw?.vocabularyHints : [];
+    const vocabularyHints = vocabRaw
+      .map((x) => {
+        const item = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>;
+        const word = this.toShortText(item.word);
+        const meaning = this.toShortText(item.meaning);
+        if (!word && !meaning) return null;
+        return { word, meaning };
+      })
+      .filter((x): x is { word: string; meaning: string } => x !== null)
+      .slice(0, 12);
+
+    const structureHints =
+      Array.isArray(raw?.structureHints) && raw?.structureHints.length
+        ? this.toLines(raw?.structureHints, 8)
+        : this.toLines(raw?.hints, 8);
+
+    return { vocabularyHints, structureHints };
+  }
+
+  private normalizeReviewTranslationResult(
+    raw: Record<string, unknown> | null,
+  ): ReviewTranslationResult {
+    return {
+      overallScore: this.toScore200(raw?.overallScore),
+      summary: this.toShortText(raw?.summary),
+      grammarHint: this.toShortText(raw?.grammarHint),
+      vocabularyHint: this.toShortText(raw?.vocabularyHint),
+      suggestedPattern: this.toShortText(raw?.suggestedPattern),
+      improvedTranslation: this.toShortText(raw?.improvedTranslation),
     };
   }
 
@@ -729,6 +835,162 @@ export class AiTutorService {
         text: res.text,
         result,
         formatVersion: 'flashcards-v1',
+      };
+    });
+  }
+
+  generateTranslationExercise(dto: GenerateTranslationExerciseDto) {
+    const sourceLanguage = this.toShortText(dto.sourceLanguage, 'en').toLowerCase();
+    const targetLanguage = this.toShortText(dto.targetLanguage, 'vi').toLowerCase();
+    const difficulty = this.toShortText(dto.difficulty, 'medium');
+    const purpose = this.toShortText(dto.purpose, 'toeic');
+    const topic = this.toShortText(dto.customTopic, this.toShortText(dto.topic, 'work'));
+    const exerciseType = dto.exerciseType ?? 'paragraph';
+
+    const difficultyNorm = difficulty.trim().toLowerCase();
+    const isHard = difficultyNorm.includes('hard') || difficultyNorm.includes('khó');
+    const isEasy = difficultyNorm.includes('easy') || difficultyNorm.includes('dễ');
+    // Mặc định coi "medium" hoặc bất kỳ giá trị không-easy là mức >= trung bình.
+    const isMediumOrAbove = !isEasy;
+
+    const lengthHint =
+      exerciseType === 'dialogue'
+        ? difficulty.toLowerCase().includes('hard')
+          ? '8-10 lượt thoại, ngắn gọn.'
+          : difficulty.toLowerCase().includes('easy')
+            ? '4-6 lượt thoại, rất ngắn.'
+            : '6-8 lượt thoại, ngắn vừa.'
+        : isHard
+          ? '180-240 từ (một đoạn văn dài).'
+          : isMediumOrAbove
+            ? '140-180 từ (một đoạn văn dài).'
+            : '80-120 từ.';
+
+    const system = [
+      'You create translation exercises for language learners.',
+      'Return JSON only (no markdown, no extra text).',
+      'Schema: {title:string, sourceText:string, sourceLanguage:string, targetLanguage:string, glossary:[{source:string,target:string,note:string}]}',
+      'glossary should include 6-12 key phrases/terms from sourceText.',
+      'sourceText must be natural and aligned to the topic/purpose.',
+      exerciseType === 'dialogue'
+        ? 'sourceText format: dialogue with speaker labels (e.g., A:, B:).'
+        : 'sourceText format: ONE single coherent paragraph (no bullet points, no multi-paragraph).',
+    ].join('\n');
+
+    const minWords =
+      exerciseType === 'paragraph'
+        ? isHard
+          ? 180
+          : isMediumOrAbove
+            ? 140
+            : 80
+        : isHard
+          ? 80
+          : isEasy
+            ? 50
+            : 65;
+
+    const user = [
+      `Purpose: ${purpose}`,
+      `Topic: ${topic}`,
+      `Difficulty: ${difficulty}`,
+      `ExerciseType: ${exerciseType}`,
+      `SourceLanguage: ${sourceLanguage}`,
+      `TargetLanguage: ${targetLanguage}`,
+      `Length: ${lengthHint}`,
+      `MinimumLength: at least ${minWords} words`,
+      '',
+      'Ensure glossary terms appear verbatim in sourceText.',
+      exerciseType === 'paragraph' && isMediumOrAbove
+        ? 'IMPORTANT: The paragraph must be long and information-dense; avoid short/simple sentences.'
+        : '',
+    ].join('\n');
+
+    return this.generateText(system, user).then((res) => {
+      const parsed = this.parseJsonFromAiText(res.text);
+      const result = this.normalizeTranslationExerciseResult(parsed, {
+        sourceLanguage,
+        targetLanguage,
+        titleFallback: topic ? `Translation: ${topic}` : 'Translation practice',
+      });
+      return {
+        model: res.model,
+        text: res.text,
+        result,
+        formatVersion: 'translation-ex-v1',
+      };
+    });
+  }
+
+  suggestTranslation(dto: SuggestTranslationDto) {
+    const targetLanguage = this.toShortText(dto.targetLanguage, 'vi').toLowerCase();
+    const hasLearnerTranslation = Boolean(this.toShortText(dto.translation));
+    const system = [
+      'You are a translation coach.',
+      'Return JSON only (no markdown, no extra text).',
+      'Schema: {vocabularyHints:[{word:string,meaning:string}], structureHints:string[]}',
+      hasLearnerTranslation
+        ? 'vocabularyHints: focus on words/phrases from sourceText that the learner likely mistranslated.'
+        : 'vocabularyHints: list key words/phrases in sourceText with simple meaning in target language.',
+      hasLearnerTranslation
+        ? 'structureHints: 3-6 concise hints about sentence structure and natural phrasing in target language.'
+        : 'structureHints: 3-6 concise patterns/structures that are useful to translate this sourceText.',
+    ].join('\n');
+
+    const user = [
+      `TargetLanguage: ${targetLanguage}`,
+      '',
+      'SourceText:',
+      dto.sourceText,
+      '',
+      hasLearnerTranslation ? 'LearnerTranslation:' : 'LearnerTranslation: (not provided)',
+      hasLearnerTranslation ? this.toShortText(dto.translation) : '',
+    ].join('\n');
+
+    return this.generateText(system, user).then((res) => {
+      const parsed = this.parseJsonFromAiText(res.text);
+      const result = this.normalizeSuggestTranslationResult(parsed);
+      return {
+        model: res.model,
+        text: res.text,
+        result,
+        formatVersion: 'translation-suggest-v1',
+      };
+    });
+  }
+
+  reviewTranslation(dto: ReviewTranslationDto) {
+    const targetLanguage = this.toShortText(dto.targetLanguage, 'vi').toLowerCase();
+    const system = [
+      'You evaluate a translation.',
+      'Be strict but fair.',
+      'Return JSON only (no markdown, no extra text).',
+      'All scores are integers in range 0-200.',
+      'Schema: {overallScore:number, summary:string, grammarHint:string, vocabularyHint:string, suggestedPattern:string, improvedTranslation:string}',
+      'summary should be short (1-3 sentences).',
+      'improvedTranslation should be a polished version in target language.',
+    ].join('\n');
+
+    const user = [
+      `TargetLanguage: ${targetLanguage}`,
+      '',
+      'SourceText:',
+      dto.sourceText,
+      '',
+      'LearnerTranslation:',
+      dto.translation,
+      '',
+      'Grade and provide corrections.',
+    ].join('\n');
+
+    return this.generateText(system, user).then((res) => {
+      const parsed = this.parseJsonFromAiText(res.text);
+      const result = this.normalizeReviewTranslationResult(parsed);
+      return {
+        model: res.model,
+        text: res.text,
+        result,
+        formatVersion: 'translation-review-v1',
       };
     });
   }

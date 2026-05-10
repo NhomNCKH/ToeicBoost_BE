@@ -1,5 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 
 export enum AiSkill {
   LISTENING = 'listening',
@@ -111,5 +119,86 @@ export class LookupVocabularyDto {
   @IsOptional()
   @IsString()
   language?: string;
+}
+
+export class GenerateTranslationExerciseDto {
+  @ApiPropertyOptional({
+    description: 'Ngôn ngữ nguồn (ví dụ: en, vi). Mặc định: en',
+  })
+  @IsOptional()
+  @IsString()
+  sourceLanguage?: string;
+
+  @ApiPropertyOptional({
+    description: 'Ngôn ngữ đích (ví dụ: vi, en). Mặc định: vi',
+  })
+  @IsOptional()
+  @IsString()
+  targetLanguage?: string;
+
+  @ApiPropertyOptional({
+    description: 'Độ khó (easy|medium|hard hoặc chuỗi tự do)',
+  })
+  @IsOptional()
+  @IsString()
+  difficulty?: string;
+
+  @ApiPropertyOptional({
+    description: 'Mục đích học (toeic|communication|work hoặc chuỗi tự do)',
+  })
+  @IsOptional()
+  @IsString()
+  purpose?: string;
+
+  @ApiPropertyOptional({ description: 'Chủ đề chọn sẵn' })
+  @IsOptional()
+  @IsString()
+  topic?: string;
+
+  @ApiPropertyOptional({ description: 'Chủ đề tự nhập' })
+  @IsOptional()
+  @IsString()
+  customTopic?: string;
+
+  @ApiPropertyOptional({
+    description: 'Dạng bài (dialogue|paragraph). Mặc định: paragraph',
+  })
+  @IsOptional()
+  @IsIn(['dialogue', 'paragraph'])
+  exerciseType?: 'dialogue' | 'paragraph';
+}
+
+export class SuggestTranslationDto {
+  @ApiProperty({ description: 'Đoạn gốc cần dịch' })
+  @IsString()
+  sourceText: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Bài dịch của người học (tùy chọn). Nếu không gửi, API sẽ trả gợi ý dựa trên câu gốc để tham khảo trước khi dịch.',
+  })
+  @IsOptional()
+  @IsString()
+  translation?: string;
+
+  @ApiPropertyOptional({ description: 'Ngôn ngữ đích (ví dụ: vi, en)' })
+  @IsOptional()
+  @IsString()
+  targetLanguage?: string;
+}
+
+export class ReviewTranslationDto {
+  @ApiProperty({ description: 'Đoạn gốc cần dịch' })
+  @IsString()
+  sourceText: string;
+
+  @ApiProperty({ description: 'Bài dịch của người học' })
+  @IsString()
+  translation: string;
+
+  @ApiPropertyOptional({ description: 'Ngôn ngữ đích (ví dụ: vi, en)' })
+  @IsOptional()
+  @IsString()
+  targetLanguage?: string;
 }
 

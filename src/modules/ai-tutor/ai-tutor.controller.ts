@@ -7,7 +7,10 @@ import {
   ExplainAnswerDto,
   GradeSpeakingDto,
   GradeWritingDto,
+  GenerateTranslationExerciseDto,
   LookupVocabularyDto,
+  ReviewTranslationDto,
+  SuggestTranslationDto,
 } from './dto/ai-tutor.dto';
 
 @ApiTags('Learner AI Tutor (Groq)')
@@ -39,6 +42,24 @@ export class AiTutorController {
   @ApiOperation({ summary: 'Tra từ vựng nhanh bằng AI từ đoạn bôi đen' })
   lookupVocabulary(@Body() dto: LookupVocabularyDto) {
     return this.aiTutorService.lookupVocabulary(dto);
+  }
+
+  @Post('translation/generate')
+  @ApiOperation({ summary: 'Tạo bài luyện dịch (AI)' })
+  generateTranslationExercise(@Body() dto: GenerateTranslationExerciseDto) {
+    return this.aiTutorService.generateTranslationExercise(dto);
+  }
+
+  @Post('translation/suggest')
+  @ApiOperation({ summary: 'Gợi ý từ vựng/cấu trúc cho bài dịch' })
+  suggestTranslation(@Body() dto: SuggestTranslationDto) {
+    return this.aiTutorService.suggestTranslation(dto);
+  }
+
+  @Post('translation/review')
+  @ApiOperation({ summary: 'Chấm & nhận xét bài dịch' })
+  reviewTranslation(@Body() dto: ReviewTranslationDto) {
+    return this.aiTutorService.reviewTranslation(dto);
   }
 }
 
