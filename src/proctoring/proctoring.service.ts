@@ -384,6 +384,20 @@ export class ProctoringService {
     return { data: await this.enrichViolations(data), total };
   }
 
+  async deleteViolation(id: string): Promise<void> {
+    const violation = await this.violationRepository.findOne({ where: { id } });
+
+    if (!violation) {
+      throw new NotFoundException('Proctoring violation not found');
+    }
+
+    await this.violationRepository.delete(id);
+
+    if (violation.examAttemptId) {
+      await this.syncAttemptViolationStats(violation.examAttemptId);
+    }
+  }
+
   async logDebugEvent(userId: string, dto: LogProctoringEventDto) {
     if (!dto.examId && !dto.examAttemptId) {
       throw new BadRequestException('examId or examAttemptId is required');
@@ -481,6 +495,20 @@ export class ProctoringService {
           attempt?.examTemplate?.code ??
           (typeof snapshotTemplate?.code === 'string' ? snapshotTemplate.code : null),
       };
+    });
+  }
+
+  private async syncAttemptViolationStats(examAttemptId: string): Promise<void> {
+    const [latestViolation, violationCount] =
+      await this.violationRepository.findAndCount({
+        where: { examAttemptId },
+        order: { timestamp: 'DESC' },
+        take: 1,
+      });
+
+    await this.examAttemptRepository.update(examAttemptId, {
+      violationCount,
+      lastViolationAt: latestViolation[0]?.timestamp ?? null,
     });
   }
 
