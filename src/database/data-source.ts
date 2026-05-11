@@ -19,7 +19,8 @@ import { AddSkillScopeToQuestionGroups1761860000004 } from './migrations/1761860
 import { ReclassifyQuestionGroupsSkillScope1761860000005 } from './migrations/1761860000005-ReclassifyQuestionGroupsSkillScope';
 import { CreateProctoringViolations1761303000002 } from './migrations/1761303000002-CreateProctoringViolations';
 import { CreateShadowingTables1761860000006 } from './migrations/1761860000006-CreateShadowingTables';
-dotenv.config();
+import { CreateTimiTable1761860000007 } from './migrations/1761860000007-CreateTimiTable';
+  dotenv.config();
 
 const dbConfig = getDatabaseConfig();
 
@@ -49,11 +50,12 @@ const dataSource = new DataSource({
     // CreateToeicWritingSetTables1761860000003,
     // AddSkillScopeToQuestionGroups1761860000004,
     // ReclassifyQuestionGroupsSkillScope1761860000005,
-    CreateShadowingTables1761860000006,
+    // CreateShadowingTables1761860000006,
     // FixOfficialExamRegistrationsBaseEntityColumns1761303000001,
     // CreateProctoringViolations1761303000002,
+    CreateTimiTable1761860000007,
   ],
   migrationsTableName: 'migrations',  
-});
+}); 
 
 export default dataSource;
