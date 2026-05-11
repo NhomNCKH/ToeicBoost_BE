@@ -27,7 +27,7 @@ import { VocabularyModule } from '@modules/vocabulary/vocabulary.module';
 import { NotificationModule } from '@modules/notification/notification.module';
 import { AiTutorModule } from '@modules/ai-tutor/ai-tutor.module';
 import { ShadowingModule } from '@modules/shadowing/shadowing.module';
-import { TimiModule } from '@modules/ai/timi/timi.module';
+import { DailyDictationModule } from '@modules/daily-dictation/daily-dictation.module';
 
 @Module({
   imports: [
@@ -88,7 +88,7 @@ import { TimiModule } from '@modules/ai/timi/timi.module';
 
     AiTutorModule,
     ShadowingModule,
-    TimiModule,
+    DailyDictationModule,
   ],
   controllers: [AppController],
   providers: [
