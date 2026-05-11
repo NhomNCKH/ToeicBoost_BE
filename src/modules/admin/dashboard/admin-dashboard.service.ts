@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomUUID } from 'crypto';
+import { Redis } from 'ioredis';
 import { IsNull, MoreThanOrEqual, Repository } from 'typeorm';
 import { APP_CONSTANTS } from '@common/constants/app.constant';
 import {
@@ -51,6 +52,8 @@ const PROJECT_DID_NAMESPACE = 'toeic-master';
 
 @Injectable()
 export class AdminDashboardService {
+  private readonly notificationReadStatePrefix = 'admin:notifications:read-state:';
+
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
@@ -72,7 +75,50 @@ export class AdminDashboardService {
     private readonly examAttemptRepository: Repository<ExamAttempt>,
     @InjectRepository(OfficialExamRegistration)
     private readonly officialExamRegistrationRepository: Repository<OfficialExamRegistration>,
+    @Inject('REDIS_CLIENT')
+    private readonly redis: Redis,
   ) {}
+
+  async getNotificationReadState(userId: string) {
+    const key = `${this.notificationReadStatePrefix}${userId}`;
+    const raw = await this.redis.get(key);
+    const parsed = this.safeParseJson(raw);
+    return {
+      proctoringTotal:
+        this.toNumberUnknown(parsed?.proctoringTotal) > 0
+          ? this.toNumberUnknown(parsed?.proctoringTotal)
+          : 0,
+      userTotal:
+        this.toNumberUnknown(parsed?.userTotal) > 0
+          ? this.toNumberUnknown(parsed?.userTotal)
+          : 0,
+      updatedAt:
+        typeof parsed?.updatedAt === 'string'
+          ? parsed.updatedAt
+          : null,
+    };
+  }
+
+  async setNotificationReadState(
+    userId: string,
+    payload: { proctoringTotal?: number; userTotal?: number },
+  ) {
+    const current = await this.getNotificationReadState(userId);
+    const next = {
+      proctoringTotal:
+        payload.proctoringTotal !== undefined
+          ? Math.max(0, this.toNumber(payload.proctoringTotal))
+          : current.proctoringTotal,
+      userTotal:
+        payload.userTotal !== undefined
+          ? Math.max(0, this.toNumber(payload.userTotal))
+          : current.userTotal,
+      updatedAt: new Date().toISOString(),
+    };
+    const key = `${this.notificationReadStatePrefix}${userId}`;
+    await this.redis.set(key, JSON.stringify(next));
+    return next;
+  }
 
   async getSummary() {
     const now = new Date();
@@ -1124,5 +1170,22 @@ export class AdminDashboardService {
 
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  private toNumberUnknown(value: unknown): number {
+    if (typeof value === 'number' || typeof value === 'string') {
+      return this.toNumber(value);
+    }
+    return 0;
+  }
+
+  private safeParseJson(value: string | null): Record<string, unknown> | null {
+    if (!value) return null;
+    try {
+      const parsed = JSON.parse(value) as Record<string, unknown>;
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch {
+      return null;
+    }
   }
 }
