@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, IsNull, Repository } from 'typeorm';
+import { DataSource, DeepPartial, In, IsNull, Repository } from 'typeorm';
 import { CredentialRequest } from '@modules/admin/credential/entities/credential-request.entity';
 import { paginate } from '@helpers/pagination.helper';
 import {
@@ -495,92 +495,118 @@ export class AdminExamTemplateService {
     dto: AutoFillExamTemplateItemsDto,
     userId: string,
   ) {
-    const template = await this.getTemplateDetail(templateId);
-    this.ensureTemplateEditable(template);
+    // Load 1 lần duy nhất để validate + lấy snapshot ban đầu.
+    // Toàn bộ phần tính toán sau đó chạy in-memory; không refresh getTemplateDetail
+    // trong vòng lặp (nguyên nhân chính làm function chạy 80s ở phiên bản cũ).
+    const initialTemplate = await this.getTemplateDetail(templateId);
+    this.ensureTemplateEditable(initialTemplate);
 
     const targetParts =
-      dto.parts ?? template.sections.map((section) => section.part);
+      dto.parts ?? initialTemplate.sections.map((section) => section.part);
 
-    if (dto.replaceUnlocked) {
-      const unlockedItemIds = template.items
-        .filter(
-          (item) => !item.locked && targetParts.includes(item.section.part),
-        )
-        .map((item) => item.id);
+    await this.dataSource.transaction(async (manager) => {
+      const itemRepo = manager.getRepository(ExamTemplateItem);
+      const templateRepo = manager.getRepository(ExamTemplate);
 
-      if (unlockedItemIds.length > 0) {
-        await this.examTemplateItemRepository.delete(unlockedItemIds);
-      }
-    }
-
-    const refreshedTemplate = await this.getTemplateDetail(templateId);
-    const invalidItemIdsInTargetParts = refreshedTemplate.items
-      .filter(
-        (item) =>
-          targetParts.includes(item.section.part) &&
-          !this.isObjectiveQuestionGroup(item.questionGroup),
-      )
-      .map((item) => item.id);
-    if (invalidItemIdsInTargetParts.length > 0) {
-      await this.examTemplateItemRepository.delete(invalidItemIdsInTargetParts);
-    }
-    const cleanTemplate =
-      invalidItemIdsInTargetParts.length > 0
-        ? await this.getTemplateDetail(templateId)
-        : refreshedTemplate;
-    let nextDisplayOrder =
-      cleanTemplate.items.reduce(
-        (max, item) => Math.max(max, item.displayOrder),
-        0,
-      ) + 1;
-
-    const existingGroupIds = new Set(
-      cleanTemplate.items.map((item) => item.questionGroupId),
-    );
-
-    for (const section of cleanTemplate.sections.filter((candidate) =>
-      targetParts.includes(candidate.part),
-    )) {
-      const sectionRules = cleanTemplate.rules.filter(
-        (candidate) => candidate.part === section.part,
+      // Khoá row template chống race condition (2 request auto-fill song song
+      // gây duplicate key trên unique (exam_template_id, display_order)).
+      await manager.query(
+        `SELECT id FROM exam_templates WHERE id = $1 FOR UPDATE`,
+        [templateId],
       );
 
-      // Nếu không có rule nào, lấy rule mặc định dựa trên cấu trúc section
-      if (sectionRules.length === 0) {
-        const candidates = await this.findAutoFillCandidates(
-          section.part,
-          existingGroupIds,
-          [],
-          [],
+      // === Bước 1: xác định toàn bộ item cần xoá rồi xoá 1 batch ===
+      const idsToDelete = new Set<string>();
+      if (dto.replaceUnlocked) {
+        for (const item of initialTemplate.items) {
+          if (!item.locked && targetParts.includes(item.section.part)) {
+            idsToDelete.add(item.id);
+          }
+        }
+      }
+      for (const item of initialTemplate.items) {
+        if (idsToDelete.has(item.id)) continue;
+        if (
+          targetParts.includes(item.section.part) &&
+          !this.isObjectiveQuestionGroup(item.questionGroup)
+        ) {
+          idsToDelete.add(item.id);
+        }
+      }
+      if (idsToDelete.size > 0) {
+        await itemRepo.delete(Array.from(idsToDelete));
+      }
+
+      // === Bước 2: snapshot state sau khi xoá (in-memory) ===
+      const remainingItems = initialTemplate.items.filter(
+        (item) => !idsToDelete.has(item.id),
+      );
+      let nextDisplayOrder =
+        remainingItems.reduce(
+          (max, item) => Math.max(max, item.displayOrder),
+          0,
+        ) + 1;
+      const existingGroupIds = new Set(
+        remainingItems.map((item) => item.questionGroupId),
+      );
+
+      // Cache candidate theo (part, requiredTags, excludedTags) — query
+      // findAutoFillCandidates rất nặng (load relations 3 cấp), tránh gọi lặp.
+      const candidateCache = new Map<string, QuestionGroup[]>();
+      const getCandidatesCached = async (
+        part: QuestionPart,
+        required: string[],
+        excluded: string[],
+      ) => {
+        const key = `${part}|${[...required].sort().join(',')}|${[...excluded].sort().join(',')}`;
+        if (!candidateCache.has(key)) {
+          // Truyền Set rỗng để hàm helper trả về toàn bộ; ta tự filter
+          // existingGroupIds bên ngoài (vì nó thay đổi qua mỗi turn).
+          const list = await this.findAutoFillCandidates(
+            part,
+            new Set<string>(),
+            required,
+            excluded,
+          );
+          candidateCache.set(key, list);
+        }
+        return candidateCache
+          .get(key)!
+          .filter((c) => !existingGroupIds.has(c.id));
+      };
+
+      // === Bước 3: build danh sách item mới (chưa insert) ===
+      const newItems: DeepPartial<ExamTemplateItem>[] = [];
+
+      for (const section of initialTemplate.sections.filter((candidate) =>
+        targetParts.includes(candidate.part),
+      )) {
+        const sectionRules = initialTemplate.rules.filter(
+          (candidate) => candidate.part === section.part,
         );
 
-        // Mục tiêu chính của auto-fill là đạt đủ số CÂU HỎI cho section.
-        // `expectedGroupCount` được giữ như một "gợi ý" ban đầu (đặc biệt hữu ích cho P3/P4/P6/P7),
-        // nhưng không được phép khiến hệ thống chỉ resolve thiếu câu (ví dụ P2 mỗi group = 1 câu).
-        const targetQuestionCount = section.expectedQuestionCount;
-        let currentQuestionCount = 0;
+        if (sectionRules.length === 0) {
+          const candidates = await getCandidatesCached(section.part, [], []);
 
-        const preferred = this.selectCandidatesByLevelDistribution(
-          candidates,
-          Math.max(0, section.expectedGroupCount),
-          {},
-        );
-        const preferredIds = new Set(preferred.map((g) => g.id));
-        const remaining = candidates.filter((g) => !preferredIds.has(g.id));
+          const targetQuestionCount = section.expectedQuestionCount;
+          let currentQuestionCount = 0;
 
-        const ordered = [...preferred, ...remaining];
+          const preferred = this.selectCandidatesByLevelDistribution(
+            candidates,
+            Math.max(0, section.expectedGroupCount),
+            {},
+          );
+          const preferredIds = new Set(preferred.map((g) => g.id));
+          const remaining = candidates.filter((g) => !preferredIds.has(g.id));
+          const ordered = [...preferred, ...remaining];
 
-        for (const candidate of ordered) {
-          if (currentQuestionCount >= targetQuestionCount) break;
+          for (const candidate of ordered) {
+            if (currentQuestionCount >= targetQuestionCount) break;
+            const qCount = candidate.questions?.length ?? 0;
+            if (qCount <= 0) continue;
+            if (currentQuestionCount + qCount > targetQuestionCount) continue;
 
-          const qCount = candidate.questions?.length ?? 0;
-          if (qCount <= 0) continue;
-
-          // Không được vượt quá target vì validate yêu cầu đúng bằng expectedQuestionCount
-          if (currentQuestionCount + qCount > targetQuestionCount) continue;
-
-          await this.examTemplateItemRepository.save(
-            this.examTemplateItemRepository.create({
+            newItems.push({
               createdById: userId,
               examTemplateId: templateId,
               sectionId: section.id,
@@ -588,50 +614,36 @@ export class AdminExamTemplateService {
               sourceMode: TemplateItemMode.RULE_BASED,
               displayOrder: nextDisplayOrder++,
               locked: false,
-            }),
-          );
-          existingGroupIds.add(candidate.id);
-          currentQuestionCount += qCount;
+            });
+            existingGroupIds.add(candidate.id);
+            currentQuestionCount += qCount;
+          }
+          continue;
         }
-        continue;
-      }
 
-      // Xử lý từng rule của section
-      for (const rule of sectionRules) {
-        const currentSectionItems = (
-          await this.getTemplateDetail(templateId)
-        ).items.filter((item) => item.sectionId === section.id);
+        for (const rule of sectionRules) {
+          let currentRuleQuestionCount = 0;
+          const targetQuestionCount = rule.questionCount;
 
-        // Với mỗi rule, ta cần lấy đủ số lượng CÂU HỎI (questionCount)
-        // chứ không phải số lượng NHÓM (groupCount)
-        // Hệ thống sẽ lấy các nhóm cho đến khi tổng số câu hỏi đạt mức yêu cầu
-        let currentRuleQuestionCount = 0;
-        const targetQuestionCount = rule.questionCount;
+          const candidates = await getCandidatesCached(
+            section.part,
+            rule.requiredTagCodes ?? [],
+            rule.excludedTagCodes ?? [],
+          );
+          const levelMatches = this.selectCandidatesByLevelDistribution(
+            candidates,
+            candidates.length,
+            rule.levelDistribution ?? {},
+          );
 
-        const candidates = await this.findAutoFillCandidates(
-          section.part,
-          existingGroupIds,
-          rule.requiredTagCodes ?? [],
-          rule.excludedTagCodes ?? [],
-        );
+          for (const candidate of levelMatches) {
+            if (currentRuleQuestionCount >= targetQuestionCount) break;
+            const qCount = candidate.questions?.length ?? 0;
+            if (qCount <= 0) continue;
+            if (currentRuleQuestionCount + qCount > targetQuestionCount)
+              continue;
 
-        // Lọc theo level nếu có distribution
-        const levelMatches = this.selectCandidatesByLevelDistribution(
-          candidates,
-          candidates.length, // Lấy hết candidates để ta tự đếm số câu
-          rule.levelDistribution ?? {},
-        );
-
-        for (const candidate of levelMatches) {
-          if (currentRuleQuestionCount >= targetQuestionCount) break;
-
-          const qCount = candidate.questions?.length ?? 0;
-          if (qCount <= 0) continue;
-
-          // Tránh overshoot để không fail validate
-          if (currentRuleQuestionCount + qCount > targetQuestionCount) continue;
-          await this.examTemplateItemRepository.save(
-            this.examTemplateItemRepository.create({
+            newItems.push({
               createdById: userId,
               examTemplateId: templateId,
               sectionId: section.id,
@@ -639,16 +651,24 @@ export class AdminExamTemplateService {
               sourceMode: TemplateItemMode.RULE_BASED,
               displayOrder: nextDisplayOrder++,
               locked: false,
-            }),
-          );
-          existingGroupIds.add(candidate.id);
-          currentRuleQuestionCount += qCount;
+            });
+            existingGroupIds.add(candidate.id);
+            currentRuleQuestionCount += qCount;
+          }
         }
       }
-    }
 
-    await this.examTemplateRepository.update(templateId, {
-      updatedById: userId,
+      // === Bước 4: 1 INSERT duy nhất cho tất cả item mới ===
+      // Cast về `any` vì entity ExamTemplate có property `metadata:
+      // Record<string, unknown>` xung đột với QueryDeepPartialEntity của
+      // TypeORM. Shape các object trong newItems đã được build thủ công và đầy
+      // đủ theo schema bảng.
+      if (newItems.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await itemRepo.insert(newItems as any);
+      }
+
+      await templateRepo.update(templateId, { updatedById: userId });
     });
 
     return this.getTemplateDetail(templateId);

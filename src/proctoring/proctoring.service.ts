@@ -15,7 +15,7 @@ import {
 import { S3StorageService } from '@modules/s3/s3-storage.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Redis } from 'ioredis';
-import { FindOptionsWhere, In, Repository } from 'typeorm';
+import { FindOptionsWhere, In, MoreThanOrEqual, Repository } from 'typeorm';
 import { LogProctoringEventDto } from './dto/log-proctoring-event.dto';
 import { VerifyFaceIdentityDto } from './dto/verify-face-identity.dto';
 
@@ -116,7 +116,8 @@ export class ProctoringService {
           message: violation.message,
           severity: violation.severity ?? 1,
           confidence: violation.confidence ?? 0,
-          screenshotUrl: violation.screenshotUrl ?? violation.snapshotImage ?? null,
+          screenshotUrl:
+            violation.screenshotUrl ?? violation.snapshotImage ?? null,
           timestamp: violation.timestamp
             ? new Date(violation.timestamp)
             : new Date(),
@@ -124,14 +125,13 @@ export class ProctoringService {
       ),
     );
 
-    const counterScope = context.attempt?.id ?? canonicalExamId;
-    const violationKey = `proctoring:violation-count:${payload.userId}:${counterScope}`;
     const incrementBy = payload.violations.length;
-    const count = await this.redis.incrby(violationKey, incrementBy);
-
-    if (count === incrementBy) {
-      await this.redis.expire(violationKey, 5 * 60);
-    }
+    const counterScope = context.attempt?.id ?? canonicalExamId;
+    const count = await this.incrementViolationCount(
+      payload.userId,
+      counterScope,
+      incrementBy,
+    );
 
     const previousCount = count - incrementBy;
     const latestViolation = payload.violations[0];
@@ -159,7 +159,12 @@ export class ProctoringService {
     );
 
     if (count >= 5) {
-      await this.blockUser(payload.userId, canonicalExamId, context.attempt, count);
+      await this.blockUser(
+        payload.userId,
+        canonicalExamId,
+        context.attempt,
+        count,
+      );
       return;
     }
 
@@ -280,7 +285,10 @@ export class ProctoringService {
       timestamp: checkedAt,
     });
 
-    if (!verification.verified) {
+    const checkpoint = audit.checkpoint;
+    const shouldRecordMismatchViolation = checkpoint !== 'pre_exam_gate';
+
+    if (!verification.verified && shouldRecordMismatchViolation) {
       await this.handleViolation({
         user_id: userId,
         exam_id: examTemplateId,
@@ -316,16 +324,21 @@ export class ProctoringService {
 
   async getStatus(userId: string, examIdentifier: string) {
     const examIds = await this.resolveExamIdentifiers(userId, examIdentifier);
-    const [recentViolations, violationCount] = await this.violationRepository.findAndCount({
-      where: {
-        userId,
-        examId: In(examIds),
-      },
-      order: { timestamp: 'DESC' },
-      take: 5,
-    });
+    const [recentViolations, violationCount] =
+      await this.violationRepository.findAndCount({
+        where: {
+          userId,
+          examId: In(examIds),
+        },
+        order: { timestamp: 'DESC' },
+        take: 5,
+      });
 
-    const context = await this.resolveAttemptContext(userId, examIdentifier, examIdentifier);
+    const context = await this.resolveAttemptContext(
+      userId,
+      examIdentifier,
+      examIdentifier,
+    );
 
     return {
       userId,
@@ -343,7 +356,10 @@ export class ProctoringService {
     examIdentifier: string,
     limit: number,
     offset: number,
-  ): Promise<{ data: Array<ProctoringViolation & Record<string, unknown>>; total: number }> {
+  ): Promise<{
+    data: Array<ProctoringViolation & Record<string, unknown>>;
+    total: number;
+  }> {
     const examIds = await this.resolveExamIdentifiers(userId, examIdentifier);
 
     const [data, total] = await this.violationRepository.findAndCount({
@@ -363,7 +379,10 @@ export class ProctoringService {
     limit: number,
     offset: number,
     filters?: { userId?: string; examId?: string },
-  ): Promise<{ data: Array<ProctoringViolation & Record<string, unknown>>; total: number }> {
+  ): Promise<{
+    data: Array<ProctoringViolation & Record<string, unknown>>;
+    total: number;
+  }> {
     const where: FindOptionsWhere<ProctoringViolation> = {};
 
     if (filters?.userId) {
@@ -472,14 +491,15 @@ export class ProctoringService {
         })
       : [];
 
-    const attemptById = new Map(attempts.map((attempt) => [attempt.id, attempt]));
+    const attemptById = new Map(
+      attempts.map((attempt) => [attempt.id, attempt]),
+    );
 
     return violations.map((violation) => {
       const attempt =
         (violation.examAttemptId
           ? attemptById.get(violation.examAttemptId)
-          : undefined) ??
-        attemptById.get(violation.examId);
+          : undefined) ?? attemptById.get(violation.examId);
       const snapshotTemplate = attempt?.templateSnapshot?.template as
         | Record<string, unknown>
         | undefined;
@@ -490,15 +510,21 @@ export class ProctoringService {
         userEmail: attempt?.user?.email ?? null,
         examName:
           attempt?.examTemplate?.name ??
-          (typeof snapshotTemplate?.name === 'string' ? snapshotTemplate.name : null),
+          (typeof snapshotTemplate?.name === 'string'
+            ? snapshotTemplate.name
+            : null),
         examCode:
           attempt?.examTemplate?.code ??
-          (typeof snapshotTemplate?.code === 'string' ? snapshotTemplate.code : null),
+          (typeof snapshotTemplate?.code === 'string'
+            ? snapshotTemplate.code
+            : null),
       };
     });
   }
 
-  private async syncAttemptViolationStats(examAttemptId: string): Promise<void> {
+  private async syncAttemptViolationStats(
+    examAttemptId: string,
+  ): Promise<void> {
     const [latestViolation, violationCount] =
       await this.violationRepository.findAndCount({
         where: { examAttemptId },
@@ -578,7 +604,7 @@ export class ProctoringService {
 
   private getCertificateProfile(registration: OfficialExamRegistration) {
     const metadata = registration.metadata ?? {};
-    const profile = (metadata as Record<string, unknown>).certificateProfile;
+    const profile = metadata.certificateProfile;
 
     return profile && typeof profile === 'object'
       ? (profile as Record<string, unknown>)
@@ -608,7 +634,9 @@ export class ProctoringService {
 
       const body = Buffer.from(await response.arrayBuffer());
       if (body.length > this.getMaxFaceImageBytes()) {
-        throw new BadRequestException('Official registration image is too large');
+        throw new BadRequestException(
+          'Official registration image is too large',
+        );
       }
 
       return body;
@@ -690,10 +718,9 @@ export class ProctoringService {
   ) {
     const registrationMetadata = registration.metadata ?? {};
     const previousChecks = Array.isArray(
-      (registrationMetadata as Record<string, unknown>).faceVerificationChecks,
+      registrationMetadata.faceVerificationChecks,
     )
-      ? ((registrationMetadata as Record<string, unknown>)
-          .faceVerificationChecks as unknown[])
+      ? (registrationMetadata.faceVerificationChecks as unknown[])
       : [];
 
     await this.registrationRepository.update(registration.id, {
@@ -725,7 +752,10 @@ export class ProctoringService {
 
     try {
       const url = new URL(avatarUrl);
-      const pathname = decodeURIComponent(url.pathname || '').replace(/^\/+/, '');
+      const pathname = decodeURIComponent(url.pathname || '').replace(
+        /^\/+/,
+        '',
+      );
       return pathname.startsWith('avatars/') ? pathname : undefined;
     } catch {
       return undefined;
@@ -765,8 +795,10 @@ export class ProctoringService {
     }
 
     const payload = data as Record<string, unknown>;
-    const userId = this.readString(payload.userId) ?? this.readString(payload.user_id);
-    const examId = this.readString(payload.examId) ?? this.readString(payload.exam_id);
+    const userId =
+      this.readString(payload.userId) ?? this.readString(payload.user_id);
+    const examId =
+      this.readString(payload.examId) ?? this.readString(payload.exam_id);
     const examAttemptId =
       this.readString(payload.examAttemptId) ??
       this.readString(payload.exam_attempt_id);
@@ -776,7 +808,10 @@ export class ProctoringService {
       : [];
 
     const violations = violationsRaw
-      .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+      .filter(
+        (item): item is Record<string, unknown> =>
+          !!item && typeof item === 'object',
+      )
       .map((item) => ({
         action: this.readString(item.action),
         message: this.readString(item.message),
@@ -805,13 +840,15 @@ export class ProctoringService {
     attempt: ExamAttempt | null,
     violationCount: number,
   ): Promise<void> {
-    const targetAttempt = attempt ?? (await this.examAttemptRepository.findOne({
-      where: {
-        userId,
-        status: ExamAttemptStatus.IN_PROGRESS,
-      },
-      order: { createdAt: 'DESC' },
-    }));
+    const targetAttempt =
+      attempt ??
+      (await this.examAttemptRepository.findOne({
+        where: {
+          userId,
+          status: ExamAttemptStatus.IN_PROGRESS,
+        },
+        order: { createdAt: 'DESC' },
+      }));
 
     if (targetAttempt) {
       targetAttempt.status = ExamAttemptStatus.CANCELLED;
@@ -825,15 +862,21 @@ export class ProctoringService {
       );
     }
 
-    await this.redis.publish(
-      'exam:blocked',
-      JSON.stringify({
-        userId,
-        examId,
-        examAttemptId: targetAttempt?.id ?? null,
-        reason: 'Bạn đã bị đình chỉ thi do vi phạm quy chế nhiều lần',
-      }),
-    );
+    try {
+      await this.redis.publish(
+        'exam:blocked',
+        JSON.stringify({
+          userId,
+          examId,
+          examAttemptId: targetAttempt?.id ?? null,
+          reason: 'Bạn đã bị đình chỉ thi do vi phạm quy chế nhiều lần',
+        }),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Failed to publish blocked exam event: ${this.describeError(error)}`,
+      );
+    }
 
     this.logger.warn(`Blocked exam attempt: user=${userId}, exam=${examId}`);
 
@@ -866,19 +909,27 @@ export class ProctoringService {
         ? `Cảnh báo lần 1: Phát hiện hành vi ${latestViolation?.action ?? 'đáng ngờ'}.`
         : `Cảnh báo lần ${warningLevel}: Tiếp tục vi phạm sẽ bị đình chỉ thi.`;
 
-    await this.redis.publish(
-      'exam:warning',
-      JSON.stringify({
-        userId,
-        examId,
-        examAttemptId: examAttemptId ?? null,
-        count: warningLevel,
-        message: warningMessage,
-        violation: latestViolation ?? null,
-      }),
-    );
+    try {
+      await this.redis.publish(
+        'exam:warning',
+        JSON.stringify({
+          userId,
+          examId,
+          examAttemptId: examAttemptId ?? null,
+          count: warningLevel,
+          message: warningMessage,
+          violation: latestViolation ?? null,
+        }),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Failed to publish exam warning event: ${this.describeError(error)}`,
+      );
+    }
 
-    this.logger.warn(`Warning sent: user=${userId}, exam=${examId}, count=${count}`);
+    this.logger.warn(
+      `Warning sent: user=${userId}, exam=${examId}, count=${count}`,
+    );
 
     await this.recordDebugLog({
       userId,
@@ -989,12 +1040,17 @@ export class ProctoringService {
 
     const key = this.getDebugLogKey(event.userId, event.examId);
     const maxEntries = this.getDebugLogMaxEntries();
-
-    await this.redis.lpush(key, JSON.stringify(sanitizedEvent));
-    await this.redis.ltrim(key, 0, maxEntries - 1);
-    await this.redis.expire(key, this.getDebugLogTtlSeconds());
-
     const summary = `${sanitizedEvent.event} user=${event.userId} exam=${event.examId}`;
+    try {
+      await this.redis.lpush(key, JSON.stringify(sanitizedEvent));
+      await this.redis.ltrim(key, 0, maxEntries - 1);
+      await this.redis.expire(key, this.getDebugLogTtlSeconds());
+    } catch (error) {
+      this.logger.warn(
+        `Failed to persist proctoring debug log: ${summary} (${this.describeError(error)})`,
+      );
+    }
+
     if (sanitizedEvent.level === 'error') {
       this.logger.error(summary);
     } else if (sanitizedEvent.level === 'warn') {
@@ -1018,7 +1074,10 @@ export class ProctoringService {
     }
   }
 
-  private sanitizeDebugMetadata(value: unknown, depth = 0): Record<string, unknown> | undefined {
+  private sanitizeDebugMetadata(
+    value: unknown,
+    depth = 0,
+  ): Record<string, unknown> | undefined {
     if (!value || typeof value !== 'object' || depth > 2) {
       return undefined;
     }
@@ -1039,7 +1098,11 @@ export class ProctoringService {
 
       if (typeof raw === 'string') {
         result[key] = raw.length > 300 ? `${raw.slice(0, 300)}...` : raw;
-      } else if (typeof raw === 'number' || typeof raw === 'boolean' || raw === null) {
+      } else if (
+        typeof raw === 'number' ||
+        typeof raw === 'boolean' ||
+        raw === null
+      ) {
         result[key] = raw;
       } else if (Array.isArray(raw)) {
         result[key] = raw.slice(0, 20);
@@ -1049,6 +1112,42 @@ export class ProctoringService {
     }
 
     return result;
+  }
+
+  private async incrementViolationCount(
+    userId: string,
+    counterScope: string,
+    incrementBy: number,
+  ): Promise<number> {
+    const violationKey = `proctoring:violation-count:${userId}:${counterScope}`;
+
+    try {
+      const count = await this.redis.incrby(violationKey, incrementBy);
+      if (count === incrementBy) {
+        await this.redis.expire(violationKey, 5 * 60);
+      }
+      return count;
+    } catch (error) {
+      this.logger.warn(
+        `Failed to update violation counter in Redis: ${this.describeError(error)}`,
+      );
+
+      return this.violationRepository.count({
+        where: {
+          userId,
+          examId: counterScope,
+          timestamp: MoreThanOrEqual(new Date(Date.now() - 5 * 60 * 1000)),
+        },
+      });
+    }
+  }
+
+  private describeError(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+
+    return String(error);
   }
 
   private getDebugLogMaxEntries(): number {

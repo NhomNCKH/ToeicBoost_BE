@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Permissions } from '@common/decorators/permissions.decorator';
 import { Roles } from '@common/decorators/roles.decorator';
@@ -50,5 +50,26 @@ export class AdminDashboardController {
       attemptId,
       adminUserId,
     );
+  }
+
+  @Get('notifications/read-state')
+  @ApiOperation({ summary: 'Lay moc da doc thong bao dashboard cua admin' })
+  @Permissions(PermissionCode.DASHBOARD_VIEW)
+  getNotificationReadState(@CurrentUser('sub') adminUserId: string) {
+    return this.adminDashboardService.getNotificationReadState(adminUserId);
+  }
+
+  @Post('notifications/read-state')
+  @ApiOperation({ summary: 'Cap nhat moc da doc thong bao dashboard cua admin' })
+  @Permissions(PermissionCode.DASHBOARD_VIEW)
+  setNotificationReadState(
+    @CurrentUser('sub') adminUserId: string,
+    @Body()
+    body: {
+      proctoringTotal?: number;
+      userTotal?: number;
+    },
+  ) {
+    return this.adminDashboardService.setNotificationReadState(adminUserId, body ?? {});
   }
 }

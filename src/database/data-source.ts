@@ -54,8 +54,9 @@ const dataSource = new DataSource({
     CreateDailyDictationTables1762750000000,
     // FixOfficialExamRegistrationsBaseEntityColumns1761303000001,
     // CreateProctoringViolations1761303000002,
+    // CreateTimiTable1761860000007,
   ],
   migrationsTableName: 'migrations',  
-});
+}); 
 
 export default dataSource;
