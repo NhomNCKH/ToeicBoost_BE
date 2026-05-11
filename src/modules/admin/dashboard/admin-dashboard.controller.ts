@@ -54,14 +54,12 @@ export class AdminDashboardController {
 
   @Get('notifications/read-state')
   @ApiOperation({ summary: 'Lay moc da doc thong bao dashboard cua admin' })
-  @Permissions(PermissionCode.DASHBOARD_VIEW)
   getNotificationReadState(@CurrentUser('sub') adminUserId: string) {
     return this.adminDashboardService.getNotificationReadState(adminUserId);
   }
 
   @Post('notifications/read-state')
   @ApiOperation({ summary: 'Cap nhat moc da doc thong bao dashboard cua admin' })
-  @Permissions(PermissionCode.DASHBOARD_VIEW)
   setNotificationReadState(
     @CurrentUser('sub') adminUserId: string,
     @Body()

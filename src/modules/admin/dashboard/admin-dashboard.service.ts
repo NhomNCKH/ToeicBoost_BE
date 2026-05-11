@@ -52,7 +52,8 @@ const PROJECT_DID_NAMESPACE = 'toeic-master';
 
 @Injectable()
 export class AdminDashboardService {
-  private readonly notificationReadStatePrefix = 'admin:notifications:read-state:';
+  private readonly notificationReadStateGlobalKey =
+    'admin:notifications:read-state:global';
 
   constructor(
     @InjectRepository(User)
@@ -79,9 +80,8 @@ export class AdminDashboardService {
     private readonly redis: Redis,
   ) {}
 
-  async getNotificationReadState(userId: string) {
-    const key = `${this.notificationReadStatePrefix}${userId}`;
-    const raw = await this.redis.get(key);
+  async getNotificationReadState(_userId: string) {
+    const raw = await this.redis.get(this.notificationReadStateGlobalKey);
     const parsed = this.safeParseJson(raw);
     return {
       proctoringTotal:
@@ -100,10 +100,10 @@ export class AdminDashboardService {
   }
 
   async setNotificationReadState(
-    userId: string,
+    _userId: string,
     payload: { proctoringTotal?: number; userTotal?: number },
   ) {
-    const current = await this.getNotificationReadState(userId);
+    const current = await this.getNotificationReadState(_userId);
     const next = {
       proctoringTotal:
         payload.proctoringTotal !== undefined
@@ -115,8 +115,10 @@ export class AdminDashboardService {
           : current.userTotal,
       updatedAt: new Date().toISOString(),
     };
-    const key = `${this.notificationReadStatePrefix}${userId}`;
-    await this.redis.set(key, JSON.stringify(next));
+    await this.redis.set(
+      this.notificationReadStateGlobalKey,
+      JSON.stringify(next),
+    );
     return next;
   }
 
