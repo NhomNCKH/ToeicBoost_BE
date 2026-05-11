@@ -280,7 +280,10 @@ export class ProctoringService {
       timestamp: checkedAt,
     });
 
-    if (!verification.verified) {
+    const checkpoint = audit.checkpoint;
+    const shouldRecordMismatchViolation = checkpoint !== 'pre_exam_gate';
+
+    if (!verification.verified && shouldRecordMismatchViolation) {
       await this.handleViolation({
         user_id: userId,
         exam_id: examTemplateId,
