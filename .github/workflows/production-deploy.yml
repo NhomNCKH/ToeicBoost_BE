@@ -54,26 +54,29 @@ jobs:
               mv "$REPO_ENV_FILE" .env.production.repo
               mv "$TEMP_ENV_FILE" .env.production.secret
 
-              python3 - <<'PY'
-              from pathlib import Path
-              from collections import OrderedDict
-
-              paths = [Path(".env.production.secret"), Path(".env.production.repo")]
-              merged: "OrderedDict[str, str]" = OrderedDict()
-
-              for path in paths:
-                  for raw in path.read_text().splitlines():
-                      line = raw.strip()
-                      if not line or line.startswith("#") or "=" not in raw:
-                          continue
-                      key = raw.split("=", 1)[0].strip()
-                      value = raw.split("=", 1)[1].strip()
-                      if path.name == ".env.production.repo" and not value and key in merged:
-                          continue
-                      merged[key] = raw
-
-              Path(".env.production").write_text("\n".join(merged.values()) + "\n")
-              PY
+              MERGE_ENV_PY="$(mktemp)"
+              printf '%s\n' \
+                'from pathlib import Path' \
+                'from collections import OrderedDict' \
+                '' \
+                'paths = [Path(".env.production.secret"), Path(".env.production.repo")]' \
+                'merged: "OrderedDict[str, str]" = OrderedDict()' \
+                '' \
+                'for path in paths:' \
+                '    for raw in path.read_text().splitlines():' \
+                '        line = raw.strip()' \
+                '        if not line or line.startswith("#") or "=" not in raw:' \
+                '            continue' \
+                '        key = raw.split("=", 1)[0].strip()' \
+                '        value = raw.split("=", 1)[1].strip()' \
+                '        if path.name == ".env.production.repo" and not value and key in merged:' \
+                '            continue' \
+                '        merged[key] = raw' \
+                '' \
+                'Path(".env.production").write_text("\n".join(merged.values()) + "\n")' \
+                > "$MERGE_ENV_PY"
+              python3 "$MERGE_ENV_PY"
+              rm -f "$MERGE_ENV_PY"
 
               rm -f .env.production.secret .env.production.repo
             else
