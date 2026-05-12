@@ -65,6 +65,40 @@ export class MediaService {
     });
   }
 
+  /**
+   * Doc 1 object tu S3 va tra ve duoi dang base64 dataURL.
+   *
+   * Mac dich: cho FE co the inline anh (vd: avatar, QR chung chi) vao DOM khi
+   * render html2canvas, tranh bi loi CORS/403 do bucket S3 khong public hoac
+   * chua co cau hinh CORS rieng.
+   *
+   * Giai han: chi cho phep cac prefix duoc whitelist de tranh bi loi dung
+   * endpoint nay de doc tuy y object.
+   */
+  async getObjectAsDataUrl(s3Key: string) {
+    if (!s3Key || typeof s3Key !== 'string') {
+      throw new BadRequestException('s3Key khong hop le');
+    }
+
+    const allowedPrefixes = ['avatars/', 'media/', 'certificates/'];
+    const isAllowed = allowedPrefixes.some((prefix) => s3Key.startsWith(prefix));
+    if (!isAllowed) {
+      throw new BadRequestException('s3Key khong nam trong vung cho phep');
+    }
+
+    const { buffer, contentType } = await this.s3StorageService.getObject({
+      objectKey: s3Key,
+    });
+
+    const base64 = buffer.toString('base64');
+    return {
+      s3Key,
+      contentType,
+      byteSize: buffer.byteLength,
+      dataUrl: `data:${contentType};base64,${base64}`,
+    };
+  }
+
   private sanitizeCategory(category: string): string {
     // Chỉ cho phép ký tự URL/path an toàn
     return (category || 'image')

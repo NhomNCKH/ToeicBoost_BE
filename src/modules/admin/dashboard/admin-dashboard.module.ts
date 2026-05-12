@@ -5,6 +5,7 @@ import { Credential } from '@modules/admin/credential/entities/credential.entity
 import { CredentialRequest } from '@modules/admin/credential/entities/credential-request.entity';
 import { CredentialTemplate } from '@modules/admin/credential/entities/credential-template.entity';
 import { CredentialEvent } from '@modules/admin/credential/entities/credential-event.entity';
+import { AdminCredentialModule } from '@modules/admin/credential/admin-credential.module';
 import { ExamTemplate } from '@modules/admin/exam-template/entities/exam-template.entity';
 import { QuestionGroup } from '@modules/admin/question-bank/entities/question-group.entity';
 import { Question } from '@modules/admin/question-bank/entities/question.entity';
@@ -35,6 +36,7 @@ import { AdminDashboardService } from './admin-dashboard.service';
       ExamPerformanceSnapshot,
       ReportJob,
     ]),
+    AdminCredentialModule,
   ],
   controllers: [AdminDashboardController],
   providers: [AdminDashboardService],

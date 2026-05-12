@@ -48,4 +48,19 @@ export class MediaController {
     // userId hiện chưa dùng trong validate prefix; giữ để mở rộng sau
     return this.mediaService.presignGetImage(dto.s3Key, dto.expiresInSeconds);
   }
+
+  @Post('data-url')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Đọc object S3 và trả về dạng base64 dataURL',
+    description:
+      'BE proxy object S3 -> base64 dataURL. Dùng cho FE inline ảnh vào DOM ' +
+      'khi render html2canvas (avatar, QR chứng chỉ), tránh CORS/403 do ' +
+      'bucket S3 không public hoặc thiếu CORS.',
+  })
+  @ApiBody({ type: PresignGetDto })
+  @ApiResponse({ status: 200, description: 'Trả về dataUrl base64' })
+  getDataUrl(@Body() dto: PresignGetDto) {
+    return this.mediaService.getObjectAsDataUrl(dto.s3Key);
+  }
 }

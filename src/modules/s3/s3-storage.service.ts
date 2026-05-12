@@ -60,6 +60,18 @@ export class S3StorageService {
   }
 
   async getObjectBuffer(params: { objectKey: string }): Promise<Buffer> {
+    const { buffer } = await this.getObject(params);
+    return buffer;
+  }
+
+  /**
+   * Doc object tu S3 va tra ve ca buffer + contentType.
+   * Dung cho cac flow proxy media qua BE de tranh CORS tu S3 (vd: nhung anh
+   * QR/avatar can de FE chup bang html2canvas).
+   */
+  async getObject(params: {
+    objectKey: string;
+  }): Promise<{ buffer: Buffer; contentType: string }> {
     const response = await this.s3Client.send(
       new GetObjectCommand({
         Bucket: this.bucketName,
@@ -67,8 +79,10 @@ export class S3StorageService {
       }),
     );
 
+    const contentType = response.ContentType ?? 'application/octet-stream';
+
     if (!response.Body) {
-      return Buffer.alloc(0);
+      return { buffer: Buffer.alloc(0), contentType };
     }
 
     const body = response.Body as unknown;
@@ -77,7 +91,8 @@ export class S3StorageService {
     };
 
     if (typeof transformable.transformToByteArray === 'function') {
-      return Buffer.from(await transformable.transformToByteArray());
+      const buffer = Buffer.from(await transformable.transformToByteArray());
+      return { buffer, contentType };
     }
 
     return new Promise((resolve, reject) => {
@@ -88,7 +103,9 @@ export class S3StorageService {
         chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       });
       stream.on('error', reject);
-      stream.on('end', () => resolve(Buffer.concat(chunks)));
+      stream.on('end', () =>
+        resolve({ buffer: Buffer.concat(chunks), contentType }),
+      );
     });
   }
 

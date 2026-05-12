@@ -52,6 +52,16 @@ export class AdminDashboardController {
     );
   }
 
+  @Get('official-results/:attemptId/credential')
+  @ApiOperation({
+    summary:
+      'Lay thong tin chung chi (QR, serial, IPFS...) cua mot bai thi da duoc cap',
+  })
+  @Permissions(PermissionCode.CREDENTIALS_MANAGE)
+  getCredentialForAttempt(@Param('attemptId') attemptId: string) {
+    return this.adminDashboardService.getIssuedCredentialByAttempt(attemptId);
+  }
+
   @Get('notifications/read-state')
   @ApiOperation({ summary: 'Lay moc da doc thong bao dashboard cua admin' })
   getNotificationReadState(@CurrentUser('sub') adminUserId: string) {

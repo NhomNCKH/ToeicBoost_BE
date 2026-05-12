@@ -20,7 +20,10 @@ import {
   TIMI_GREETING_BY_PERSONA,
 } from './timi.prompt';
 
-const HISTORY_WINDOW = 12;
+// 8 turn gần nhất đủ để LLM nắm context cho conversational tutoring; giảm
+// từ 12 → 8 cắt được ~50-150ms latency LLM do input ngắn hơn, đồng thời
+// giảm thêm chi phí token.
+const HISTORY_WINDOW = 8;
 
 export interface TimiTurnResponse {
   turnId: string;
@@ -243,15 +246,18 @@ export class TimiService {
     userTurn: TimiTurn,
     userText: string,
   ): Promise<TimiTurnResponse> {
+    const pipelineStart = Date.now();
     const messages = await this.buildLlmMessages(session, userText);
 
     const llmStarted = Date.now();
     const llmResult = await this.llm.chatJson(messages);
     const llmLatency = Date.now() - llmStarted;
 
+    const ttsStarted = Date.now();
     const tts = await this.tts.synthesize({ text: llmResult.spokenReplyEn });
+    const ttsLatency = Date.now() - ttsStarted;
 
-    const botTurn = await this.persistBotTurn(
+    await this.persistBotTurn(
       userId,
       session,
       llmResult.spokenReplyEn,
@@ -265,6 +271,10 @@ export class TimiService {
 
     session.lastActiveAt = new Date();
     await this.sessionRepo.save(session);
+
+    this.logger.log(
+      `Timi turn ${userTurn.id} → LLM=${llmLatency}ms, TTS=${ttsLatency}ms, total=${Date.now() - pipelineStart}ms (model=${llmResult.modelId})`,
+    );
 
     return {
       turnId: userTurn.id,

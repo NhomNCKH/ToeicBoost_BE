@@ -28,10 +28,14 @@ export class GroqLlmAdapter {
 
   constructor(private readonly config: ConfigService) {
     this.apiKey = this.config.get<string>('GROQ_API_KEY') ?? null;
+    // Default sang model "instant" 8B của Llama 3.1: throughput ~3-4x so với
+    // llama-3.3-70b-versatile, latency mỗi turn giảm 600-900ms. Với chat ngắn
+    // 2-3 câu English, chất lượng vẫn dư cho TOEIC speaking practice.
+    // Nếu muốn dùng lại 70B (chất lượng cao hơn): set env TIMI_LLM_MODEL.
     this.model =
       this.config.get<string>('TIMI_LLM_MODEL') ??
       this.config.get<string>('GROQ_MODEL') ??
-      'llama-3.3-70b-versatile';
+      'llama-3.1-8b-instant';
   }
 
   async chatJson(messages: ChatMessage[]): Promise<TimiLlmReply> {
@@ -50,7 +54,11 @@ export class GroqLlmAdapter {
         body: JSON.stringify({
           model: this.model,
           temperature: 0.6,
-          max_tokens: 400,
+          // System prompt đã yêu cầu "1-3 sentences"; 220 tokens ~ 160 từ,
+          // dư cho 4-5 câu ngắn. Cắt từ 400 xuống 220 giúp:
+          //  - LLM dừng sớm hơn → giảm 200-400ms.
+          //  - TTS xử lý text ngắn hơn → giảm thêm 100-300ms.
+          max_tokens: 220,
           response_format: { type: 'json_object' },
           messages,
         }),

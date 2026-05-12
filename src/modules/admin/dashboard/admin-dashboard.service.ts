@@ -33,6 +33,7 @@ import {
   OfficialExamRegistration,
   OfficialExamRegistrationStatus,
 } from '@modules/assessment/official-exam/entities/official-exam-registration.entity';
+import { CredentialAssetService } from '@modules/admin/credential/services/credential-asset.service';
 import { OfficialResultsQueryDto } from './dto/official-results-query.dto';
 import { RegistrationsQueryDto } from './dto/registrations-query.dto';
 
@@ -78,6 +79,7 @@ export class AdminDashboardService {
     private readonly officialExamRegistrationRepository: Repository<OfficialExamRegistration>,
     @Inject('REDIS_CLIENT')
     private readonly redis: Redis,
+    private readonly credentialAssetService: CredentialAssetService,
   ) {}
 
   async getNotificationReadState(_userId: string) {
@@ -410,6 +412,9 @@ export class AdminDashboardService {
       .addSelect('user.id', 'userId')
       .addSelect('user.name', 'userName')
       .addSelect('user.email', 'userEmail')
+      .addSelect('user.avatarUrl', 'userAvatarUrl')
+      .addSelect('user.avatarS3Key', 'userAvatarS3Key')
+      .addSelect('user.birthday', 'userBirthday')
       .addSelect('template.id', 'templateId')
       .addSelect('template.name', 'templateName')
       .addSelect('template.code', 'templateCode')
@@ -438,6 +443,17 @@ export class AdminDashboardService {
         )`,
         'violationCount',
       )
+      .addSelect(
+        `(
+          SELECT oer.metadata
+          FROM official_exam_registrations oer
+          WHERE oer.user_id = attempt.user_id
+            AND oer.exam_template_id = attempt.exam_template_id
+          ORDER BY oer.registered_at DESC
+          LIMIT 1
+        )`,
+        'registrationMetadata',
+      )
       .orderBy('attempt.submittedAt', 'DESC', 'NULLS LAST')
       .addOrderBy('attempt.startedAt', 'DESC')
       .skip(skip)
@@ -452,6 +468,46 @@ export class AdminDashboardService {
           const passThresholdSnapshot = this.toNumber(row.passThresholdSnapshot);
           const passThreshold = passThresholdSnapshot > 0 ? passThresholdSnapshot : passScoreMin;
 
+          const regMeta = this.parseJsonValue(row.registrationMetadata) as
+            | Record<string, unknown>
+            | null;
+          const profile = (regMeta?.certificateProfile ?? null) as Record<
+            string,
+            unknown
+          > | null;
+          const registrationProfile = profile
+            ? {
+                fullName:
+                  typeof profile.fullName === 'string'
+                    ? (profile.fullName as string)
+                    : null,
+                identityNumber:
+                  typeof profile.identityNumber === 'string'
+                    ? (profile.identityNumber as string)
+                    : null,
+                birthday:
+                  typeof profile.birthday === 'string'
+                    ? (profile.birthday as string)
+                    : null,
+                phone:
+                  typeof profile.phone === 'string'
+                    ? (profile.phone as string)
+                    : null,
+                address:
+                  typeof profile.address === 'string'
+                    ? (profile.address as string)
+                    : null,
+                avatarUrl:
+                  typeof profile.avatarUrl === 'string'
+                    ? (profile.avatarUrl as string)
+                    : null,
+                avatarS3Key:
+                  typeof profile.avatarS3Key === 'string'
+                    ? (profile.avatarS3Key as string)
+                    : null,
+              }
+            : null;
+
           return {
             id: row.id,
             status: row.status,
@@ -463,7 +519,7 @@ export class AdminDashboardService {
               this.toNumber(row.readingScaledScore),
             ),
             passThreshold,
-            isEligible: totalScore > passScoreMin,
+            isEligible: totalScore >= passScoreMin,
             startedAt: row.startedAt,
             submittedAt: row.submittedAt,
             issueStatus:
@@ -478,6 +534,9 @@ export class AdminDashboardService {
                   id: row.userId,
                   name: row.userName,
                   email: row.userEmail,
+                  avatarUrl: row.userAvatarUrl ?? null,
+                  avatarS3Key: row.userAvatarS3Key ?? null,
+                  birthday: row.userBirthday ?? null,
                 }
               : null,
             template: row.templateId
@@ -488,6 +547,7 @@ export class AdminDashboardService {
                   mode: TemplateMode.OFFICIAL_EXAM,
                 }
               : null,
+            registrationProfile,
           };
         }),
         meta: {
@@ -497,6 +557,19 @@ export class AdminDashboardService {
         },
       },
     };
+  }
+
+  private parseJsonValue(value: unknown): unknown {
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'object') return value;
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return null;
+      }
+    }
+    return null;
   }
 
   async listRegistrations(query: RegistrationsQueryDto) {
@@ -594,6 +667,56 @@ export class AdminDashboardService {
     };
   }
 
+  async getIssuedCredentialByAttempt(attemptId: string) {
+    const credential = await this.credentialRepository
+      .createQueryBuilder('credential')
+      .leftJoinAndSelect('credential.user', 'user')
+      .leftJoinAndSelect('credential.credentialTemplate', 'template')
+      .innerJoin('credential.request', 'request')
+      .where('request.examAttemptId = :attemptId', { attemptId })
+      .getOne();
+
+    if (!credential) {
+      return null;
+    }
+
+    const meta = (credential.metadata ?? {}) as Record<string, unknown>;
+    // Tra ve flat object de FE chi can unwrap 1 lop (consistent voi cac endpoint khac).
+    // Response interceptor cua BE se wrap thanh { statusCode, message, data: {...this} }.
+    return {
+      credentialId: credential.id,
+      serialNumber: credential.serialNumber,
+      status: credential.status,
+      issuedAt: credential.issuedAt,
+      expiresAt: credential.expiresAt,
+      ipfsCid: credential.ipfsCid,
+      storageUri: credential.storageUri,
+      ipfsGatewayUrl:
+        typeof meta.ipfsGatewayUrl === 'string'
+          ? (meta.ipfsGatewayUrl as string)
+          : null,
+      qrToken: credential.qrToken,
+      qrUrl: credential.qrUrl,
+      qrImageUrl:
+        typeof meta.qrImageUrl === 'string'
+          ? (meta.qrImageUrl as string)
+          : null,
+      qrImageS3Key:
+        typeof meta.qrImageS3Key === 'string'
+          ? (meta.qrImageS3Key as string)
+          : null,
+      payloadHash:
+        typeof meta.payloadHash === 'string'
+          ? (meta.payloadHash as string)
+          : null,
+      chainHash:
+        typeof meta.chainHash === 'string'
+          ? (meta.chainHash as string)
+          : null,
+      issueStatus: 'issued' as const,
+    };
+  }
+
   async issueCertificateForAttempt(attemptId: string, adminUserId: string) {
     const attempt = await this.examAttemptRepository.findOne({
       where: { id: attemptId },
@@ -620,7 +743,7 @@ export class AdminDashboardService {
     const passThreshold =
       attempt.passThresholdSnapshot ?? APP_CONSTANTS.CERTIFICATE_PASS_THRESHOLD;
 
-    if (totalScore <= passThreshold) {
+    if (totalScore < passThreshold) {
       throw new BadRequestException(
         `Bai thi chua dat nguong cap chung chi (${passThreshold})`,
       );
@@ -634,10 +757,22 @@ export class AdminDashboardService {
 
     if (existingIssued) {
       const credential = existingIssued;
+      const meta = (credential.metadata ?? {}) as Record<string, unknown>;
       return {
         issued: false,
         alreadyIssued: true,
         credentialId: credential?.id ?? null,
+        serialNumber: credential?.serialNumber ?? null,
+        ipfsCid: credential?.ipfsCid ?? null,
+        storageUri: credential?.storageUri ?? null,
+        ipfsGatewayUrl:
+          typeof meta.ipfsGatewayUrl === 'string' ? meta.ipfsGatewayUrl : null,
+        qrToken: credential?.qrToken ?? null,
+        qrUrl: credential?.qrUrl ?? null,
+        qrImageUrl:
+          typeof meta.qrImageUrl === 'string' ? meta.qrImageUrl : null,
+        qrImageS3Key:
+          typeof meta.qrImageS3Key === 'string' ? meta.qrImageS3Key : null,
         issueStatus: 'issued',
       };
     }
@@ -764,7 +899,7 @@ export class AdminDashboardService {
       const frontendBase =
         process.env.FRONTEND_BASE_URL?.trim() ||
         process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-        '';
+        (process.env.NODE_ENV !== 'production' ? 'http://localhost:3000' : '');
       const qrUrl = frontendBase
         ? `${frontendBase.replace(/\/$/, '')}/verify/credential/${qrToken}`
         : null;
@@ -812,6 +947,35 @@ export class AdminDashboardService {
         }),
       );
 
+      let qrImageUrl: string | null = null;
+      let qrImageS3Key: string | null = null;
+      if (qrUrl) {
+        try {
+          const qrAsset =
+            await this.credentialAssetService.generateAndUploadQrImage({
+              credentialId: credential.id,
+              qrToken,
+              verifyUrl: qrUrl,
+            });
+          qrImageUrl = qrAsset.publicUrl;
+          qrImageS3Key = qrAsset.s3Key;
+          credential.metadata = {
+            ...(credential.metadata ?? {}),
+            qrImageUrl,
+            qrImageS3Key,
+          };
+          await this.credentialRepository.save(credential);
+        } catch (qrError: any) {
+          // Khong fail toan bo flow neu chi loi sinh QR; van cap chung chi thanh cong,
+          // FE co the fallback sinh QR client-side tu qrUrl.
+          credential.metadata = {
+            ...(credential.metadata ?? {}),
+            qrImageError: qrError?.message ?? 'qr_generation_failed',
+          };
+          await this.credentialRepository.save(credential);
+        }
+      }
+
       request.status = CredentialRequestStatus.ISSUED;
       request.metadata = {
         ...(request.metadata ?? {}),
@@ -837,6 +1001,7 @@ export class AdminDashboardService {
             payloadHash,
             previousChainHash,
             chainHash,
+            qrImageUrl,
           },
         }),
       );
@@ -848,6 +1013,11 @@ export class AdminDashboardService {
         serialNumber: credential.serialNumber,
         ipfsCid: credential.ipfsCid,
         storageUri: credential.storageUri,
+        ipfsGatewayUrl: ipfs.gatewayUrl,
+        qrToken: credential.qrToken,
+        qrUrl: credential.qrUrl,
+        qrImageUrl,
+        qrImageS3Key,
         payloadHash,
         chainHash,
         issueStatus: 'issued',
@@ -1094,7 +1264,7 @@ export class AdminDashboardService {
         learnerEmail: input.user.email,
         score: input.totalScore,
         passThreshold: input.passThreshold,
-        passed: input.totalScore > input.passThreshold,
+        passed: input.totalScore >= input.passThreshold,
         examAttemptId: input.attemptId,
         examTemplate: {
           id: input.examTemplate.id,
