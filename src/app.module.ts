@@ -32,7 +32,7 @@ import { TimiModule } from '@modules/ai/timi/timi.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, expandVariables: true }),
     ScheduleModule.forRoot(),
 
     TypeOrmModule.forRootAsync({
