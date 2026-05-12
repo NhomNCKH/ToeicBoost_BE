@@ -25,11 +25,16 @@ jobs:
             set -e
 
             APP_DIR="/var/www/toeicai/ToeicBoost_BE"
+            EXISTING_ENV_FILE=""
 
             echo "🚀 Starting deployment..."
 
             if [ -d "$APP_DIR" ]; then
               cd "$APP_DIR"
+              if [ -f ".env.production" ]; then
+                EXISTING_ENV_FILE="$(mktemp)"
+                cp ".env.production" "$EXISTING_ENV_FILE"
+              fi
               git fetch origin
               git reset --hard origin/main
             else
@@ -50,16 +55,27 @@ jobs:
             ${{ secrets.PRODUCTION_ENV_FILE }}
             EOF
 
-            if grep -q '[^[:space:]]' "$TEMP_ENV_FILE"; then
+            if [ -n "$EXISTING_ENV_FILE" ] || grep -q '[^[:space:]]' "$TEMP_ENV_FILE"; then
               mv "$REPO_ENV_FILE" .env.production.repo
-              mv "$TEMP_ENV_FILE" .env.production.secret
+              if [ -n "$EXISTING_ENV_FILE" ]; then
+                cp "$EXISTING_ENV_FILE" .env.production.current
+              fi
+              if grep -q '[^[:space:]]' "$TEMP_ENV_FILE"; then
+                mv "$TEMP_ENV_FILE" .env.production.secret
+              else
+                rm -f "$TEMP_ENV_FILE"
+              fi
 
               MERGE_ENV_PY="$(mktemp)"
               printf '%s\n' \
                 'from pathlib import Path' \
                 'from collections import OrderedDict' \
                 '' \
-                'paths = [Path(".env.production.secret"), Path(".env.production.repo")]' \
+                'paths = []' \
+                'for candidate in (".env.production.current", ".env.production.repo", ".env.production.secret"):' \
+                '    path = Path(candidate)' \
+                '    if path.exists() and path.read_text().strip():' \
+                '        paths.append(path)' \
                 'merged: "OrderedDict[str, str]" = OrderedDict()' \
                 '' \
                 'for path in paths:' \
@@ -69,7 +85,7 @@ jobs:
                 '            continue' \
                 '        key = raw.split("=", 1)[0].strip()' \
                 '        value = raw.split("=", 1)[1].strip()' \
-                '        if path.name == ".env.production.repo" and not value and key in merged:' \
+                '        if not value and key in merged:' \
                 '            continue' \
                 '        merged[key] = raw' \
                 '' \
@@ -78,10 +94,11 @@ jobs:
               python3 "$MERGE_ENV_PY"
               rm -f "$MERGE_ENV_PY"
 
-              rm -f .env.production.secret .env.production.repo
+              rm -f .env.production.current .env.production.secret .env.production.repo
             else
               rm -f "$TEMP_ENV_FILE"
             fi
+            rm -f "$EXISTING_ENV_FILE"
 
             echo "🧹 Cleaning old runtime leftovers..."
             pm2 delete toeicai-backend >/dev/null 2>&1 || true
