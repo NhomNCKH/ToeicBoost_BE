@@ -42,7 +42,10 @@ export class GroqSttAdapter {
     const form = new FormData();
     form.append('file', blob, params.filename || 'audio.webm');
     form.append('model', this.model);
-    form.append('response_format', 'verbose_json');
+    // Chỉ cần plain text → dùng response_format = "json" (chỉ trả {text}).
+    // verbose_json trả thêm segments/duration làm payload to hơn và Groq
+    // tốn thêm vài chục ms để serialize. BE chỉ dùng `text`.
+    form.append('response_format', 'json');
     if (params.language) {
       form.append('language', params.language);
     }
@@ -82,6 +85,7 @@ export class GroqSttAdapter {
     }
 
     const transcript = String(data?.text ?? '').trim();
+    // response_format = "json" không trả về duration; chấp nhận null.
     const duration = Number(data?.duration);
 
     return {

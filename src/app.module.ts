@@ -29,6 +29,7 @@ import { AiTutorModule } from '@modules/ai-tutor/ai-tutor.module';
 import { ShadowingModule } from '@modules/shadowing/shadowing.module';
 import { DailyDictationModule } from '@modules/daily-dictation/daily-dictation.module';
 import { TimiModule } from '@modules/ai/timi/timi.module';
+import { CredentialPublicModule } from '@modules/credential/credential-public.module';
 
 @Module({
   imports: [
@@ -91,6 +92,7 @@ import { TimiModule } from '@modules/ai/timi/timi.module';
     ShadowingModule,
     DailyDictationModule,
     TimiModule,
+    CredentialPublicModule,
   ],
   controllers: [AppController],
   providers: [
