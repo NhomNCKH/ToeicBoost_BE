@@ -36,6 +36,7 @@ import {
 import { CredentialAssetService } from '@modules/admin/credential/services/credential-asset.service';
 import { OfficialResultsQueryDto } from './dto/official-results-query.dto';
 import { RegistrationsQueryDto } from './dto/registrations-query.dto';
+import { buildCredentialVerifyUrl } from '@config/public-frontend-url';
 
 type CountBucket = {
   key: string;
@@ -896,13 +897,7 @@ export class AdminDashboardService {
         `credential-${request.id}`,
       );
 
-      const frontendBase =
-        process.env.FRONTEND_BASE_URL?.trim() ||
-        process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-        (process.env.NODE_ENV !== 'production' ? 'http://localhost:3000' : '');
-      const qrUrl = frontendBase
-        ? `${frontendBase.replace(/\/$/, '')}/verify/credential/${qrToken}`
-        : null;
+      const qrUrl = buildCredentialVerifyUrl(qrToken);
 
       const expiresAt =
         resolvedTemplate.validityDays && resolvedTemplate.validityDays > 0

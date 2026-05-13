@@ -8,7 +8,9 @@
   "scripts": {
     "start:dev": "nest start --watch",
     "build": "nest build",
-    "start:prod": "node dist/main",
+    "start:prod": "NODE_ENV=production node dist/main",
+    "repair:credential-verify-urls": "node dist/scripts/backfill-credential-verify-urls.js",
+    "repair:credential-verify-urls:dev": "NODE_ENV=production ts-node -r tsconfig-paths/register src/scripts/backfill-credential-verify-urls.ts",
     "lint": "eslint \"src/**/*.ts\" --fix",
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",

@@ -12,6 +12,7 @@ import {
 import { User } from '@modules/security/entities/user.entity';
 import { MailerService } from '@modules/notification/services/mailer.service';
 import { RegisterOfficialExamDto } from './dto/official-exam.dto';
+import { resolvePublicFrontendBaseUrl } from '@config/public-frontend-url';
 
 function formatDateVi(d: Date) {
   // dd/mm/yyyy
@@ -630,12 +631,7 @@ export class OfficialExamService {
   }
 
   private getFrontendBaseUrl() {
-    const raw =
-      process.env.FRONTEND_BASE_URL?.trim() ||
-      process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-      process.env.APP_URL?.trim() ||
-      'http://localhost:3000';
-    return raw.replace(/\/$/, '');
+    return resolvePublicFrontendBaseUrl();
   }
 
   async listMyRegistrations(userId: string) {

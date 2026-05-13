@@ -1,7 +1,9 @@
 import { DataSource } from 'typeorm';
 import * as dotenv from 'dotenv';
+import * as dotenvExpand from 'dotenv-expand';
 import * as path from 'node:path';
 import { getDatabaseConfig } from '../config/database.config';
+import { getEnvFilePaths } from '../config/env-paths';
 import { CreateExamAttemptTables1742860000000 } from './migrations/1742860000000-CreateExamAttemptTables';
 import { AddUserProfileFields1749000000000 } from './migrations/1749000000000-AddUserProfileFields';
 import { AddUserAvatarS3Key1749000000001 } from './migrations/1749000000001-AddUserAvatarS3Key';
@@ -20,7 +22,11 @@ import { ReclassifyQuestionGroupsSkillScope1761860000005 } from './migrations/17
 import { CreateProctoringViolations1761303000002 } from './migrations/1761303000002-CreateProctoringViolations';
 import { CreateShadowingTables1761860000006 } from './migrations/1761860000006-CreateShadowingTables';
 import { CreateDailyDictationTables1762750000000 } from './migrations/1762750000000-CreateDailyDictationTables';
-dotenv.config();
+dotenvExpand.expand(
+  dotenv.config({
+    path: getEnvFilePaths(),
+  }),
+);
 
 const dbConfig = getDatabaseConfig();
 

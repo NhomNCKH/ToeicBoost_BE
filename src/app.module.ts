@@ -30,10 +30,15 @@ import { ShadowingModule } from '@modules/shadowing/shadowing.module';
 import { DailyDictationModule } from '@modules/daily-dictation/daily-dictation.module';
 import { TimiModule } from '@modules/ai/timi/timi.module';
 import { CredentialPublicModule } from '@modules/credential/credential-public.module';
+import { getEnvFilePaths } from './config/env-paths';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, expandVariables: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      expandVariables: true,
+      envFilePath: getEnvFilePaths(),
+    }),
     ScheduleModule.forRoot(),
 
     TypeOrmModule.forRootAsync({
